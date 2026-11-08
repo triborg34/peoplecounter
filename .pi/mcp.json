@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "vibefarsi": {
+      "url": "https://vibefarsi.ir/mcp",
+      "description": "VibeFarsi: Persian RTL React + Tailwind registry (design rules, components, themes)"
+    }
+  }
+}

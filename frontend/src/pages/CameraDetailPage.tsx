@@ -111,18 +111,18 @@ export function CameraDetailPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={fetchAll} className="btn-secondary">
-            <ArrowPathIcon className="w-5 h-5 ml-2" />
+            <ArrowPathIcon className="w-5 h-5 me-2" />
             بارگذاری مجدد
           </button>
           <button onClick={handleToggle} className={camera.enabled ? 'btn-secondary' : 'btn-primary'}>
             {camera.enabled ? (
               <>
-                <PauseIcon className="w-5 h-5 ml-2" />
+                <PauseIcon className="w-5 h-5 me-2" />
                 غیرفعال کردن
               </>
             ) : (
               <>
-                <PlayIcon className="w-5 h-5 ml-2" />
+                <PlayIcon className="w-5 h-5 me-2" />
                 فعال کردن
               </>
             )}
@@ -148,7 +148,7 @@ export function CameraDetailPage() {
                 {camera.last_error && <span className="text-xs text-red-400">{camera.last_error}</span>}
               </div>
             )}
-            <div className="absolute top-2 right-2">
+            <div className="absolute top-2 end-2">
               <span className={`live-indicator ${isOnline ? 'online' : 'offline'}`}>
                 {isOnline ? 'زنده' : 'آفلاین'}
               </span>

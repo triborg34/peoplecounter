@@ -294,7 +294,7 @@ function CameraTile({ camera, liveCount, onClick, onToggle }: CameraTileProps) {
         )}
 
         {/* Live indicator */}
-        <div className="absolute top-2 right-2">
+        <div className="absolute top-2 end-2">
           <span className={`live-indicator ${isOnline ? 'online' : 'offline'}`}>
             {isOnline ? 'زنده' : 'آفلاین'}
           </span>
@@ -302,7 +302,7 @@ function CameraTile({ camera, liveCount, onClick, onToggle }: CameraTileProps) {
 
         {/* Recording indicator if enabled */}
         {camera.detection_enabled && (
-          <div className="absolute top-2 left-2 flex items-center gap-1 bg-red-500 text-white px-2 py-0.5 rounded text-xs">
+          <div className="absolute top-2 start-2 flex items-center gap-1 bg-red-500 text-white px-2 py-0.5 rounded text-xs">
             <span className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
             تشخیص فعال
           </div>
@@ -336,7 +336,7 @@ function CameraTile({ camera, liveCount, onClick, onToggle }: CameraTileProps) {
       {/* Camera info */}
       <div className="p-3">
         <div className="flex items-center justify-between">
-          <h3 className="font-medium text-gray-900 truncate pr-2">{camera.name}</h3>
+          <h3 className="font-medium text-gray-900 truncate pe-2">{camera.name}</h3>
           <span className={`badge ${isOnline ? 'badge-success' : 'badge-gray'}`}>
             {isOnline ? 'آنلاین' : 'آفلاین'}
           </span>

@@ -45,13 +45,13 @@ export function TopBar({ onMenuClick }: TopBarProps) {
 
         <div className="hidden sm:block w-64 sm:w-80">
           <div className="relative">
-            <MagnifyingGlassIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
+            <MagnifyingGlassIcon className="absolute end-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
             <input
               type="search"
               placeholder="جستجو در دوربین‌ها، منطقه‌ها..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="input-field pr-10 pl-4 py-2 text-sm"
+              className="input-field pe-10 pl-4 py-2 text-sm"
               aria-label="جستجو"
             />
           </div>
@@ -68,11 +68,11 @@ export function TopBar({ onMenuClick }: TopBarProps) {
             aria-expanded={notificationsOpen}
           >
             <BellIcon className="w-5 h-5" aria-hidden="true" />
-            <span className="absolute top-1 left-1 w-2 h-2 bg-red-500 rounded-full" aria-hidden="true" />
+            <span className="absolute top-1 start-1 w-2 h-2 bg-red-500 rounded-full" aria-hidden="true" />
           </button>
 
           {notificationsOpen && (
-            <div className="absolute left-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2 z-50 animate-fade-in">
+            <div className="absolute start-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2 z-50 animate-fade-in">
               <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
                 <h3 className="font-medium text-gray-900 dark:text-white">اعلان‌ها</h3>
               </div>

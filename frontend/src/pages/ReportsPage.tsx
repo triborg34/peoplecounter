@@ -118,15 +118,15 @@ export function ReportsPage() {
         </div>
         <div className="flex gap-2">
           <button onClick={() => handleExport('excel')} disabled={!!exporting} className="btn-secondary">
-            <DocumentArrowDownIcon className="w-5 h-5 ml-2" />
+            <DocumentArrowDownIcon className="w-5 h-5 me-2" />
             {exporting === 'excel' ? 'در حال تولید...' : 'Excel'}
           </button>
           <button onClick={() => handleExport('pdf')} disabled={!!exporting} className="btn-secondary">
-            <DocumentArrowDownIcon className="w-5 h-5 ml-2" />
+            <DocumentArrowDownIcon className="w-5 h-5 me-2" />
             {exporting === 'pdf' ? 'در حال تولید...' : 'PDF'}
           </button>
           <button onClick={() => handleExport('csv')} disabled={!!exporting} className="btn-primary">
-            <DocumentArrowDownIcon className="w-5 h-5 ml-2" />
+            <DocumentArrowDownIcon className="w-5 h-5 me-2" />
             {exporting === 'csv' ? 'در حال تولید...' : 'CSV'}
           </button>
         </div>
@@ -197,7 +197,7 @@ export function ReportsPage() {
 
             <div className="flex items-end">
               <button type="button" onClick={fetchSummary} className="btn-primary w-full">
-                <ChartBarIcon className="w-5 h-5 ml-2" />
+                <ChartBarIcon className="w-5 h-5 me-2" />
                 اعمال فیلتر
               </button>
             </div>
@@ -295,7 +295,7 @@ export function ReportsPage() {
                           style={{ width: `${(row.count / maxCount) * 100}%` }}
                         />
                       </div>
-                      <span className="w-12 text-sm text-gray-700 text-left persian-numbers">{row.count}</span>
+                      <span className="w-12 text-sm text-gray-700 text-end persian-numbers">{row.count}</span>
                     </div>
                   );
                 })}

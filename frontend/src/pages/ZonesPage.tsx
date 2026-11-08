@@ -1,53 +1,21 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../api/client';
-import { type Camera, type Line, type LineCreate, type Area, type AreaCreate } from '../api/types';
+import { type Camera, type Line, type Area } from '../api/types';
+import { ZoneCanvas } from '../components/ZoneCanvas';
+import { cn, fa } from '../lib/utils';
 import {
   PlusIcon,
-  PencilIcon,
   TrashIcon,
-  Squares2X2Icon,
-  MinusIcon,
   XMarkIcon,
   CheckIcon,
+  ArrowPathIcon,
+  CursorArrowRaysIcon,
+  MinusIcon,
   RectangleStackIcon,
-  MinusCircleIcon,
 } from '@heroicons/react/24/outline';
 
-type ZoneKind = 'line' | 'area';
-
-interface FormState {
-  kind: ZoneKind;
-  name: string;
-  color: string;
-  enabled: boolean;
-  // line
-  x1: string;
-  y1: string;
-  x2: string;
-  y2: string;
-  direction: 'A_TO_B' | 'B_TO_A' | 'BOTH';
-  // area
-  points: number[][];
-}
-
-const emptyForm = (): FormState => ({
-  kind: 'line',
-  name: '',
-  color: '#22c55e',
-  enabled: true,
-  x1: '0.2',
-  y1: '0.5',
-  x2: '0.8',
-  y2: '0.5',
-  direction: 'BOTH',
-  points: [
-    [0.2, 0.2],
-    [0.8, 0.2],
-    [0.8, 0.8],
-    [0.2, 0.8],
-  ],
-});
+type Mode = 'select' | 'line' | 'area';
 
 export function ZonesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -57,506 +25,341 @@ export function ZonesPage() {
   const [selectedCameraId, setSelectedCameraId] = useState<number | null>(
     searchParams.get('camera') ? parseInt(searchParams.get('camera')!) : null
   );
+  const [mode, setMode] = useState<Mode>('select');
+  const [direction, setDirection] = useState<'A_TO_B' | 'B_TO_A' | 'BOTH'>('BOTH');
+  const [selected, setSelected] = useState<{ kind: 'line' | 'area'; id: number } | null>(null);
   const [loading, setLoading] = useState(false);
-  const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<{ kind: ZoneKind; id: number } | null>(null);
-  const [formData, setFormData] = useState<FormState>(emptyForm());
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState(false);
+  const [snapshotKey, setSnapshotKey] = useState(Date.now());
+  const [busy, setBusy] = useState(false);
+
+  // name/prompt modal for a newly drawn shape
+  const [pending, setPending] = useState<{ kind: 'line' | 'area'; points: [number, number][] } | null>(null);
+  const [pendingName, setPendingName] = useState('');
+
+  // inline edit of a selected shape
+  const [editingName, setEditingName] = useState('');
+  const [editingEnabled, setEditingEnabled] = useState(true);
 
   const fetchCameras = useCallback(async () => {
-    try {
-      const res = await api.getCameras({ size: 100 });
-      setCameras(res.items);
-      if (!selectedCameraId && res.items.length > 0) {
-        setSelectedCameraId(res.items[0].id);
-      }
-    } catch (err) {
-      console.error('Failed to fetch cameras:', err);
-    }
+    const res = await api.getCameras({ size: 100 });
+    setCameras(res.items);
+    if (!selectedCameraId && res.items.length > 0) setSelectedCameraId(res.items[0].id);
   }, [selectedCameraId]);
 
   const fetchZones = useCallback(async () => {
     if (!selectedCameraId) return;
     setLoading(true);
     try {
-      const [l, a] = await Promise.all([
-        api.getLines(selectedCameraId),
-        api.getAreas(selectedCameraId),
-      ]);
+      const [l, a] = await Promise.all([api.getLines(selectedCameraId), api.getAreas(selectedCameraId)]);
       setLines(l);
       setAreas(a);
-    } catch (err) {
-      console.error('Failed to fetch zones:', err);
     } finally {
       setLoading(false);
     }
   }, [selectedCameraId]);
 
-  useEffect(() => {
-    fetchCameras();
-  }, [fetchCameras]);
+  useEffect(() => { fetchCameras(); }, [fetchCameras]);
+  useEffect(() => { fetchZones(); setSelected(null); }, [fetchZones]);
 
   useEffect(() => {
-    fetchZones();
-  }, [fetchZones]);
+    if (!selected) { setEditingName(''); return; }
+    const item = selected.kind === 'line'
+      ? lines.find((l) => l.id === selected.id)
+      : areas.find((a) => a.id === selected.id);
+    if (item) { setEditingName(item.name); setEditingEnabled(item.enabled); }
+  }, [selected, lines, areas]);
 
-  const handleCameraChange = (cameraId: number) => {
-    setSelectedCameraId(cameraId);
-    setSearchParams({ camera: cameraId.toString() });
+  const handleCameraChange = (id: number) => {
+    setSelectedCameraId(id);
+    setSearchParams({ camera: id.toString() });
+    setSnapshotKey(Date.now());
   };
 
-  const openCreateModal = (kind: ZoneKind) => {
-    setEditing(null);
-    setFormData(emptyForm());
-    setFormData((f) => ({ ...f, kind, color: kind === 'line' ? '#22c55e' : '#3b82f6' }));
-    setFormErrors({});
-    setShowModal(true);
+  // ---- drawing completion (opens a small name prompt) ------------------
+  const onDrawLine = (points: [number, number][]) => {
+    setPending({ kind: 'line', points });
+    setPendingName('خط ' + fa(lines.length + 1));
+  };
+  const onDrawArea = (points: [number, number][]) => {
+    setPending({ kind: 'area', points });
+    setPendingName('منطقه ' + fa(areas.length + 1));
   };
 
-  const openEditModal = (kind: ZoneKind, item: Line | Area) => {
-    setEditing({ kind, id: item.id });
-    if (kind === 'line') {
-      const l = item as Line;
-      setFormData({
-        kind,
-        name: l.name,
-        color: l.color,
-        enabled: l.enabled,
-        x1: String(l.x1),
-        y1: String(l.y1),
-        x2: String(l.x2),
-        y2: String(l.y2),
-        direction: l.direction,
-        points: [],
-      });
-    } else {
-      const a = item as Area;
-      setFormData({
-        kind,
-        name: a.name,
-        color: a.color,
-        enabled: a.enabled,
-        x1: '',
-        y1: '',
-        x2: '',
-        y2: '',
-        direction: 'BOTH',
-        points: a.points.map((p) => [p[0], p[1]]),
-      });
-    }
-    setFormErrors({});
-    setShowModal(true);
-  };
-
-  const closeModal = () => {
-    setShowModal(false);
-    setEditing(null);
-    setFormErrors({});
-  };
-
-  const validateForm = (): boolean => {
-    const errors: Record<string, string> = {};
-    if (!formData.name.trim()) errors.name = 'نام الزامی است';
-    if (formData.kind === 'line') {
-      const vals = [formData.x1, formData.y1, formData.x2, formData.y2].map(Number);
-      if (vals.some((v) => Number.isNaN(v) || v < 0 || v > 1)) {
-        errors.coords = 'مختصات باید عددی بین ۰ و ۱ باشند';
-      }
-    } else if (formData.points.length < 3) {
-      errors.coords = 'منطقه باید حداقل ۳ نقطه داشته باشد';
-    } else if (formData.points.some((p) => p.some((v) => Number.isNaN(v) || v < 0 || v > 1))) {
-      errors.coords = 'مختصات باید عددی بین ۰ و ۱ باشند';
-    }
-    setFormErrors(errors);
-    return Object.keys(errors).length === 0;
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!validateForm() || !selectedCameraId) return;
-
-    setSubmitting(true);
+  const commitPending = async () => {
+    if (!pending || !selectedCameraId || !pendingName.trim()) return;
+    const name = pendingName.trim();
+    setBusy(true);
     try {
-      if (formData.kind === 'line') {
-        const payload: LineCreate = {
-          name: formData.name,
-          x1: Number(formData.x1),
-          y1: Number(formData.y1),
-          x2: Number(formData.x2),
-          y2: Number(formData.y2),
-          direction: formData.direction,
-          color: formData.color,
-          enabled: formData.enabled,
-        };
-        if (editing?.kind === 'line') {
-          await api.updateLine(selectedCameraId, editing.id, payload);
-        } else {
-          await api.createLine(selectedCameraId, payload);
-        }
+      if (pending.kind === 'line') {
+        const [[x1, y1], [x2, y2]] = pending.points;
+        await api.createLine(selectedCameraId, {
+          name, x1, y1, x2, y2, direction, color: '#22c55e', enabled: true,
+        });
       } else {
-        const payload: AreaCreate = {
-          name: formData.name,
-          points: formData.points,
-          color: formData.color,
-          enabled: formData.enabled,
-        };
-        if (editing?.kind === 'area') {
-          await api.updateArea(selectedCameraId, editing.id, payload);
-        } else {
-          await api.createArea(selectedCameraId, payload);
-        }
+        await api.createArea(selectedCameraId, {
+          name, points: pending.points, color: '#3b82f6', enabled: true,
+        });
       }
-      closeModal();
-      fetchZones();
-    } catch (err: any) {
-      if (err.response?.data?.detail) {
-        setFormErrors({ submit: err.response.data.detail });
-      } else {
-        setFormErrors({ submit: 'خطا در ذخیره منطقه' });
-      }
+      setPending(null);
+      setPendingName('');
+      setMode('select');
+      await fetchZones();
     } finally {
-      setSubmitting(false);
+      setBusy(false);
     }
   };
 
-  const handleDelete = async (kind: ZoneKind, id: number) => {
+  // ---- dragging stored shapes -----------------------------------------
+  const onMoveLine = async (id: number, points: [number, number][]) => {
     if (!selectedCameraId) return;
-    if (!window.confirm('آیا از حذف مطمئن هستید؟')) return;
+    // optimistic update
+    setLines((prev) =>
+      prev.map((l) => (l.id === id ? { ...l, x1: points[0][0], y1: points[0][1], x2: points[1][0], y2: points[1][1] } : l))
+    );
+    await api.updateLine(selectedCameraId, id, {
+      x1: points[0][0], y1: points[0][1], x2: points[1][0], y2: points[1][1],
+    });
+  };
+
+  const onMoveArea = async (id: number, points: [number, number][]) => {
+    if (!selectedCameraId) return;
+    setAreas((prev) => prev.map((a) => (a.id === id ? { ...a, points } : a)));
+    await api.updateArea(selectedCameraId, id, { points });
+  };
+
+  // ---- selected shape edit / delete -----------------------------------
+  const saveSelected = async () => {
+    if (!selected || !selectedCameraId) return;
+    setBusy(true);
     try {
-      if (kind === 'line') {
-        await api.deleteLine(selectedCameraId, id);
-        setLines((prev) => prev.filter((l) => l.id !== id));
+      if (selected.kind === 'line') {
+        await api.updateLine(selectedCameraId, selected.id, { name: editingName.trim(), enabled: editingEnabled });
       } else {
-        await api.deleteArea(selectedCameraId, id);
-        setAreas((prev) => prev.filter((a) => a.id !== id));
+        await api.updateArea(selectedCameraId, selected.id, { name: editingName.trim(), enabled: editingEnabled });
       }
-    } catch (err) {
-      console.error('Failed to delete:', err);
+      await fetchZones();
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleOpenEditor = async (cameraId: number) => {
-    // Open the current camera snapshot in a new tab as a visual reference.
+  const deleteSelected = async () => {
+    if (!selected || !selectedCameraId) return;
+    if (!window.confirm('این مورد حذف شود؟')) return;
+    setBusy(true);
     try {
-      const url = await api.getCameraSnapshot(cameraId);
-      window.open(url, '_blank');
-    } catch (err: any) {
-      console.error('Failed to open snapshot:', err);
+      if (selected.kind === 'line') await api.deleteLine(selectedCameraId, selected.id);
+      else await api.deleteArea(selectedCameraId, selected.id);
+      setSelected(null);
+      await fetchZones();
+    } finally {
+      setBusy(false);
     }
   };
 
-  const zoneColors = [
-    '#22c55e', '#3b82f6', '#16a34a', '#dc2626', '#f59e0b',
-    '#9333ea', '#ec4899', '#06b6d4', '#84cc16', '#f97316', '#6366f1',
-  ];
+  const selectedItem = selected
+    ? selected.kind === 'line'
+      ? lines.find((l) => l.id === selected.id)
+      : areas.find((a) => a.id === selected.id)
+    : null;
 
-  const selectedCamera = cameras.find((c) => c.id === selectedCameraId);
-  const allZones = [
-    ...lines.map((l) => ({
-      id: l.id,
-      kind: 'line' as ZoneKind,
-      name: l.name,
-      color: l.color,
-      enabled: l.enabled,
-      detail: `(${l.x1.toFixed(3)},${l.y1.toFixed(3)}) → (${l.x2.toFixed(3)},${l.y2.toFixed(3)})`,
-      directionLabel: l.direction === 'A_TO_B' ? 'A→B' : l.direction === 'B_TO_A' ? 'B→A' : 'هر دو جهت',
-    })),
-    ...areas.map((a) => ({
-      id: a.id,
-      kind: 'area' as ZoneKind,
-      name: a.name,
-      color: a.color,
-      enabled: a.enabled,
-      detail: `${a.points.length} نقطه`,
-      directionLabel: '—',
-    })),
-  ];
+  const backgroundUrl = selectedCameraId ? api.getCameraSnapshotUrl(selectedCameraId) : null;
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-5 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">منطقه‌ها و خطوط شمارش</h1>
-          <p className="text-gray-500 mt-1">تعریف خطوط و مناطق برای شمارش ورودی و خروجی</p>
+          <p className="text-gray-500 mt-1">روی تصویر دوربین خط و منطقه بکشید</p>
         </div>
-        <div className="flex gap-3">
-          <button
-            onClick={() => openCreateModal('line')}
-            disabled={!selectedCameraId}
-            className="btn-primary"
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-gray-500 whitespace-nowrap">دوربین:</label>
+          <select
+            value={selectedCameraId || ''}
+            onChange={(e) => handleCameraChange(parseInt(e.target.value))}
+            className="input-field w-48"
           >
-            <PlusIcon className="w-5 h-5 ml-2" />
-            خط شمارش
+            <option value="">انتخاب کنید</option>
+            {cameras.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+          <button onClick={() => { setSnapshotKey(Date.now()); fetchZones(); }} className="p-2 rounded-lg text-gray-500 hover:bg-gray-100" aria-label="بارگذاری مجدد تصویر">
+            <ArrowPathIcon className="w-5 h-5" />
           </button>
-          <button
-            onClick={() => openCreateModal('area')}
-            disabled={!selectedCameraId}
-            className="btn-primary"
-          >
-            <RectangleStackIcon className="w-5 h-5 ml-2" />
-            منطقه شمارش
-          </button>
-          {selectedCameraId && (
-            <button onClick={() => handleOpenEditor(selectedCameraId)} className="btn-secondary">
-              <Squares2X2Icon className="w-5 h-5 ml-2" />
-              نمای لحظه‌ای دوربین
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Camera Selector */}
-      <div className="card">
-        <div className="card-body">
-          <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-            <label className="label-field mb-0 whitespace-nowrap">دوربین:</label>
-            <select
-              value={selectedCameraId || ''}
-              onChange={(e) => handleCameraChange(parseInt(e.target.value))}
-              className="input-field w-full sm:w-64"
-            >
-              <option value="">دوربین انتخاب کنید</option>
-              {cameras.map((camera) => (
-                <option key={camera.id} value={camera.id}>
-                  {camera.name} {camera.location && `(${camera.location})`}
-                </option>
-              ))}
-            </select>
-            {selectedCamera && (
-              <div className="flex items-center gap-4 text-sm text-gray-500">
-                <span className={`badge ${selectedCamera.enabled ? 'badge-success' : 'badge-gray'}`}>
-                  {selectedCamera.enabled ? 'فعال' : 'غیرفعال'}
-                </span>
-                <span className={`live-indicator ${selectedCamera.status === 'online' ? 'online' : 'offline'}`}>
-                  {selectedCamera.status === 'online' ? 'آنلاین' : 'آفلاین'}
-                </span>
-              </div>
-            )}
+      {!selectedCameraId ? (
+        <div className="card">
+          <div className="empty-state h-64">
+            <RectangleStackIcon className="empty-state-icon w-16 h-16" />
+            <h3 className="empty-state-title">دوربین انتخاب نشده</h3>
+            <p className="empty-state-description">برای شروع یک دوربین انتخاب کنید</p>
           </div>
         </div>
-      </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+          {/* Canvas + toolbar */}
+          <div className="lg:col-span-2 space-y-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="inline-flex rounded-lg border border-gray-200 bg-white p-0.5">
+                <ToolButton active={mode === 'select'} onClick={() => setMode('select')} icon={CursorArrowRaysIcon} label="انتخاب" />
+                <ToolButton active={mode === 'line'} onClick={() => setMode('line')} icon={MinusIcon} label="خط" />
+                <ToolButton active={mode === 'area'} onClick={() => setMode('area')} icon={RectangleStackIcon} label="منطقه" />
+              </div>
+              {mode === 'line' && (
+                <select value={direction} onChange={(e) => setDirection(e.target.value as any)} className="input-field w-40">
+                  <option value="BOTH">هر دو جهت</option>
+                  <option value="A_TO_B">A به B</option>
+                  <option value="B_TO_A">B به A</option>
+                </select>
+              )}
+            </div>
 
-      {/* Zones List */}
-      <div className="card">
-        <div className="card-body p-0">
-          {!selectedCameraId ? (
-            <div className="empty-state h-64">
-              <Squares2X2Icon className="empty-state-icon w-16 h-16" />
-              <h3 className="empty-state-title">دوربین انتخاب نشده</h3>
-              <p className="empty-state-description">برای مدیریت منطقه‌ها، یک دوربین را از منوی بالا انتخاب کنید</p>
-            </div>
-          ) : loading ? (
-            <div className="flex items-center justify-center h-64">
-              <svg className="spinner-lg" />
-            </div>
-          ) : allZones.length === 0 ? (
-            <div className="empty-state h-64">
-              <Squares2X2Icon className="empty-state-icon w-16 h-16" />
-              <h3 className="empty-state-title">هیچ منطقه‌ای تعریف نشده</h3>
-              <p className="empty-state-description">برای شروع، اولین خط یا منطقه شمارش را اضافه کنید</p>
-              <button onClick={() => openCreateModal('line')} className="btn-primary mt-4">
-                <PlusIcon className="w-5 h-5 ml-2" />
-                افزودن خط شمارش
-              </button>
-            </div>
-          ) : (
-            <div className="table-container">
-              <table>
-                <thead>
-                  <tr>
-                    <th>نوع</th>
-                    <th>نام</th>
-                    <th>جهت</th>
-                    <th>رنگ</th>
-                    <th>مختصات</th>
-                    <th>وضعیت</th>
-                    <th className="text-left">عملیات</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {allZones.map((zone) => (
-                    <tr key={`${zone.kind}-${zone.id}`} className="hover:bg-gray-50">
-                      <td>
-                        <span className={`badge ${zone.kind === 'line' ? 'badge-info' : 'badge-success'}`}>
-                          {zone.kind === 'line' ? 'خط' : 'منطقه'}
+            <ZoneCanvas
+              key={snapshotKey}
+              backgroundUrl={backgroundUrl}
+              lines={lines}
+              areas={areas}
+              mode={mode}
+              selected={selected}
+              onSelect={setSelected}
+              onDrawLine={onDrawLine}
+              onDrawArea={onDrawArea}
+              onMoveLine={onMoveLine}
+              onMoveArea={onMoveArea}
+            />
+            <p className="text-xs text-gray-400">
+              نکته: عبور افراد از خط در مرکز پایین (پا) فرد شمارش می‌شود. برای ویرایش نقاط، حالت «انتخاب» را بزنید و دسته‌ها را بکشید.
+            </p>
+          </div>
+
+          {/* Side panel */}
+          <div className="space-y-4">
+            {selectedItem && (
+              <div className="card p-4 space-y-3">
+                <h3 className="text-sm font-semibold text-gray-900">
+                  ویرایش {selected?.kind === 'line' ? 'خط' : 'منطقه'}
+                </h3>
+                <div>
+                  <label className="label-field">نام</label>
+                  <input value={editingName} onChange={(e) => setEditingName(e.target.value)} className="input-field" />
+                </div>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input type="checkbox" checked={editingEnabled} onChange={(e) => setEditingEnabled(e.target.checked)} className="w-4 h-4 rounded" />
+                  فعال
+                </label>
+                <div className="flex gap-2">
+                  <button onClick={saveSelected} disabled={busy} className="btn-primary btn-sm flex-1">
+                    <CheckIcon className="w-4 h-4 me-1" />
+                    ذخیره
+                  </button>
+                  <button onClick={deleteSelected} disabled={busy} className="btn-outline btn-sm text-red-600">
+                    <TrashIcon className="w-4 h-4 me-1" />
+                    حذف
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="card p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-900">خطوط ({fa(lines.length)})</h3>
+                <button onClick={() => setMode('line')} className="p-1 text-blue-600 hover:bg-blue-50 rounded" aria-label="افزودن خط">
+                  <PlusIcon className="w-5 h-5" />
+                </button>
+              </div>
+              {lines.length === 0 ? (
+                <p className="text-xs text-gray-400 py-2">خطی رسم نشده است</p>
+              ) : (
+                <ul className="space-y-1">
+                  {lines.map((l) => (
+                    <li key={l.id}>
+                      <button
+                        onClick={() => { setSelected({ kind: 'line', id: l.id }); setMode('select'); }}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-start',
+                          selected?.kind === 'line' && selected.id === l.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                        )}
+                      >
+                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: l.color }} />
+                        <span className="flex-1 truncate">{l.name}</span>
+                        <span className="text-xs text-gray-400">
+                          {l.direction === 'A_TO_B' ? 'A→B' : l.direction === 'B_TO_A' ? 'B→A' : 'هر دو'}
                         </span>
-                      </td>
-                      <td className="font-medium text-gray-900">{zone.name}</td>
-                      <td>
-                        <span className="text-sm text-gray-600">{zone.directionLabel}</span>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2">
-                          <span className="w-6 h-6 rounded border border-gray-300" style={{ backgroundColor: zone.color }} />
-                          <span className="text-xs text-gray-500 font-mono">{zone.color}</span>
-                        </div>
-                      </td>
-                      <td>
-                        <span className="text-xs text-gray-500 font-mono max-w-xs truncate block">{zone.detail}</span>
-                      </td>
-                      <td>
-                        <span className={zone.enabled ? 'badge badge-success' : 'badge badge-gray'}>
-                          {zone.enabled ? 'فعال' : 'غیرفعال'}
-                        </span>
-                      </td>
-                      <td>
-                        <div className="flex items-center gap-2 text-left">
-                          <button
-                            onClick={() => openEditModal(zone.kind, zone.kind === 'line' ? lines.find((l) => l.id === zone.id)! : areas.find((a) => a.id === zone.id)!)}
-                            className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
-                            aria-label="ویرایش"
-                          >
-                            <PencilIcon className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(zone.kind, zone.id)}
-                            className="p-2 text-red-500 hover:text-red-700 hover:bg-red-100 rounded-lg transition-colors"
-                            aria-label="حذف"
-                          >
-                            <TrashIcon className="w-5 h-5" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                      </button>
+                    </li>
                   ))}
-                </tbody>
-              </table>
+                </ul>
+              )}
             </div>
-          )}
-        </div>
-      </div>
 
-      {/* Modal */}
-      {showModal && (
-        <div className="modal-overlay" onClick={closeModal} role="dialog" aria-modal="true" aria-labelledby="zone-modal-title">
-          <div className="modal-content max-w-2xl" onClick={(e) => e.stopPropagation()}>
+            <div className="card p-4">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-semibold text-gray-900">مناطق ({fa(areas.length)})</h3>
+                <button onClick={() => setMode('area')} className="p-1 text-blue-600 hover:bg-blue-50 rounded" aria-label="افزودن منطقه">
+                  <PlusIcon className="w-5 h-5" />
+                </button>
+              </div>
+              {areas.length === 0 ? (
+                <p className="text-xs text-gray-400 py-2">منطقه‌ای رسم نشده است</p>
+              ) : (
+                <ul className="space-y-1">
+                  {areas.map((a) => (
+                    <li key={a.id}>
+                      <button
+                        onClick={() => { setSelected({ kind: 'area', id: a.id }); setMode('select'); }}
+                        className={cn(
+                          'w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-sm text-start',
+                          selected?.kind === 'area' && selected.id === a.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50'
+                        )}
+                      >
+                        <span className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: a.color }} />
+                        <span className="flex-1 truncate">{a.name}</span>
+                        <span className="text-xs text-gray-400">{fa(a.points.length)} نقطه</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {loading && <p className="text-xs text-gray-400 text-center">در حال بارگذاری…</p>}
+          </div>
+        </div>
+      )}
+
+      {/* name prompt for a freshly drawn shape */}
+      {pending && (
+        <div className="modal-overlay" onClick={() => setPending(null)} role="dialog" aria-modal="true">
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="card-header flex items-center justify-between">
-              <h2 id="zone-modal-title" className="text-lg font-semibold text-gray-900">
-                {editing ? 'ویرایش' : 'افزودن'}{formData.kind === 'line' ? ' خط شمارش' : ' منطقه شمارش'}
+              <h2 className="text-lg font-semibold text-gray-900">
+                نام {pending.kind === 'line' ? 'خط' : 'منطقه'} جدید
               </h2>
-              <button onClick={closeModal} className="p-2 text-gray-500 hover:text-gray-700 rounded-lg hover:bg-gray-100">
+              <button onClick={() => setPending(null)} className="p-2 text-gray-500 hover:bg-gray-100 rounded-lg">
                 <XMarkIcon className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="card-body space-y-5">
-              {formErrors.submit && (
-                <div className="p-3 bg-red-50 text-red-700 rounded-lg text-sm flex items-center gap-2">
-                  <XMarkIcon className="w-5 h-5" />
-                  {formErrors.submit}
-                </div>
-              )}
-
+            <div className="card-body space-y-4">
               <div>
-                <label htmlFor="zone-name" className="label-field">نام <span className="text-red-500">*</span></label>
+                <label className="label-field">نام</label>
                 <input
-                  id="zone-name"
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className={`input-field ${formErrors.name ? 'border-red-500 focus:ring-red-500' : ''}`}
-                  placeholder={formData.kind === 'line' ? 'مثال: خط ورودی اصلی' : 'مثال: منطقه پیشخوان'}
+                  autoFocus
+                  value={pendingName}
+                  onChange={(e) => setPendingName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && commitPending()}
+                  className="input-field"
                 />
-                {formErrors.name && <p className="text-red-500 text-sm mt-1">{formErrors.name}</p>}
               </div>
-
-              {formData.kind === 'line' ? (
-                <div>
-                  <label className="label-field">جهت شمارش</label>
-                  <select
-                    value={formData.direction}
-                    onChange={(e) => setFormData({ ...formData, direction: e.target.value as FormState['direction'] })}
-                    className="input-field"
-                  >
-                    <option value="BOTH">هر دو جهت</option>
-                    <option value="A_TO_B">فقط A به B</option>
-                    <option value="B_TO_A">فقط B به A</option>
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    A نقطه شروع و B نقطه پایان خط است. مسیر عبور افراد با راست به چپ یا چپ به راست خط تعیین می‌شود.
-                  </p>
-                </div>
-              ) : null}
-
-              <div>
-                <label className="label-field">رنگ نمایش</label>
-                <div className="flex flex-wrap items-center gap-3">
-                  <input
-                    type="color"
-                    value={formData.color}
-                    onChange={(e) => setFormData({ ...formData, color: e.target.value })}
-                    className="w-10 h-10 rounded-lg border border-gray-300 cursor-pointer"
-                  />
-                  <div className="flex flex-wrap gap-2">
-                    {zoneColors.map((color) => (
-                      <button
-                        key={color}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, color })}
-                        className="w-8 h-8 rounded-lg border-2 transition-transform hover:scale-110"
-                        style={{ backgroundColor: color, borderColor: formData.color === color ? '#1e293b' : 'transparent' }}
-                        aria-label={color}
-                        aria-pressed={formData.color === color}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {formData.kind === 'line' ? (
-                <div>
-                  <label className="label-field">مختصات خط (نسبی ۰-۱)</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    <PointInput label="X1 (A)" value={formData.x1} onChange={(v) => setFormData({ ...formData, x1: v })} />
-                    <PointInput label="Y1 (A)" value={formData.y1} onChange={(v) => setFormData({ ...formData, y1: v })} />
-                    <PointInput label="X2 (B)" value={formData.x2} onChange={(v) => setFormData({ ...formData, x2: v })} />
-                    <PointInput label="Y2 (B)" value={formData.y2} onChange={(v) => setFormData({ ...formData, y2: v })} />
-                  </div>
-                  {formErrors.coords && <p className="text-red-500 text-sm mt-1">{formErrors.coords}</p>}
-                </div>
-              ) : (
-                <div>
-                  <label className="label-field">رئوس منطقه (نسبی ۰-۱)</label>
-                  <PolygonInput
-                    points={formData.points}
-                    onChange={(points) => setFormData({ ...formData, points })}
-                    error={formErrors.coords}
-                  />
-                </div>
-              )}
-
-              <div className="flex items-center gap-4">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={formData.enabled}
-                    onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
-                    className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
-                  />
-                  <span className="text-sm text-gray-700">فعال</span>
-                </label>
-              </div>
-
-              <div className="flex justify-end gap-3 border-t border-gray-100 pt-5">
-                <button type="button" onClick={closeModal} className="btn-secondary">
-                  انصراف
-                </button>
-                <button type="submit" disabled={submitting} className="btn-primary">
-                  {submitting ? (
-                    <span className="flex items-center gap-2">
-                      <svg className="spinner" />
-                      در حال ذخیره...
-                    </span>
-                  ) : (
-                    <span className="flex items-center gap-2">
-                      <CheckIcon className="w-5 h-5" />
-                      {editing ? 'به‌روزرسانی' : 'افزودن'}
-                    </span>
-                  )}
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setPending(null)} className="btn-secondary">انصراف</button>
+                <button onClick={commitPending} disabled={busy || !pendingName.trim()} className="btn-primary">
+                  {busy ? 'در حال ذخیره…' : 'ذخیره'}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         </div>
       )}
@@ -564,93 +367,22 @@ export function ZonesPage() {
   );
 }
 
-function PointInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <div>
-      <label className="text-xs text-gray-500">{label}</label>
-      <input
-        type="number"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="input-field"
-        min="0"
-        max="1"
-        step="0.001"
-      />
-    </div>
-  );
-}
-
-function PolygonInput({
-  points,
-  onChange,
-  error,
+function ToolButton({
+  active, onClick, icon: Icon, label,
 }: {
-  points: number[][];
-  onChange: (points: number[][]) => void;
-  error?: string;
+  active: boolean; onClick: () => void; icon: React.ComponentType<{ className?: string }>; label: string;
 }) {
-  const updatePoint = (index: number, axis: 0 | 1, value: number) => {
-    const next = points.map((p, i) => (i === index ? (axis === 0 ? [value, p[1]] : [p[0], value]) : p));
-    onChange(next);
-  };
-
-  const removePoint = (index: number) => {
-    if (points.length <= 3) return;
-    onChange(points.filter((_, i) => i !== index));
-  };
-
-  const addPoint = () => onChange([...points, [0.5, 0.5]]);
-
   return (
-    <div className="space-y-2">
-      {points.map((point, index) => (
-        <div key={index} className="flex items-center gap-2">
-          <span className="w-8 text-center text-sm text-gray-500">{index + 1}</span>
-          <input
-            type="number"
-            value={point[0]}
-            onChange={(e) => updatePoint(index, 0, parseFloat(e.target.value) || 0)}
-            className="input-field w-24"
-            placeholder="X"
-            min="0"
-            max="1"
-            step="0.001"
-          />
-          <input
-            type="number"
-            value={point[1]}
-            onChange={(e) => updatePoint(index, 1, parseFloat(e.target.value) || 0)}
-            className="input-field w-24"
-            placeholder="Y"
-            min="0"
-            max="1"
-            step="0.001"
-          />
-          <span className="text-xs text-gray-400">(نسبی ۰-۱)</span>
-          {points.length > 3 && (
-            <button
-              type="button"
-              onClick={() => removePoint(index)}
-              className="p-1 text-red-500 hover:text-red-700 rounded"
-              aria-label={`حذف نقطه ${index + 1}`}
-            >
-              <MinusIcon className="w-5 h-5" />
-            </button>
-          )}
-        </div>
-      ))}
-      <div className="flex gap-2">
-        <button type="button" onClick={addPoint} className="btn-outline btn-sm">
-          <PlusIcon className="w-4 h-4 ml-1" />
-          افزودن نقطه
-        </button>
-        <span className="text-xs text-gray-400 flex items-center gap-1">
-          <MinusCircleIcon className="w-4 h-4" />
-          حداقل ۳ نقطه
-        </span>
-      </div>
-      {error && <p className="text-red-500 text-sm">{error}</p>}
-    </div>
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-md transition-colors',
+        active ? 'bg-blue-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+      )}
+      aria-pressed={active}
+    >
+      <Icon className="w-4 h-4" />
+      {label}
+    </button>
   );
 }

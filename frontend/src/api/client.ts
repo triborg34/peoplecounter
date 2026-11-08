@@ -216,6 +216,12 @@ class ApiClient {
     return URL.createObjectURL(response.data);
   }
 
+  /** Direct snapshot URL usable in <img src>; auth travels as ?token=. */
+  getCameraSnapshotUrl(id: number): string {
+    const token = this.accessToken ? `?token=${encodeURIComponent(this.accessToken)}` : '';
+    return `${API_BASE_URL}/cameras/${id}/snapshot${token}`;
+  }
+
   async toggleCamera(id: number, enabled: boolean): Promise<Camera> {
     const response = await this.client.patch(`/cameras/${id}`, { enabled });
     return response.data;

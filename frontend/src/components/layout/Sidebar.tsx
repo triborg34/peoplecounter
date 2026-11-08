@@ -1,28 +1,16 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import {
-  HomeIcon,
   VideoCameraIcon,
-  Squares2X2Icon,
-  ChartBarIcon,
-  UsersIcon,
-  Cog6ToothIcon,
   XMarkIcon,
 } from '@heroicons/react/24/outline';
+import { navigation } from './MobileTabBar';
 
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const navigation = [
-  { name: 'داشبورد', href: '/', icon: HomeIcon, permission: 'cameras:read' },
-  { name: 'دوربین‌ها', href: '/cameras', icon: VideoCameraIcon, permission: 'cameras:read' },
-  { name: 'منطقه‌ها و خطوط', href: '/zones', icon: Squares2X2Icon, permission: 'zones:read' },
-  { name: 'گزارش‌ها', href: '/reports', icon: ChartBarIcon, permission: 'reports:read' },
-  { name: 'کاربران', href: '/users', icon: UsersIcon, permission: 'users:read' },
-  { name: 'تنظیمات', href: '/settings', icon: Cog6ToothIcon, permission: 'settings:read' },
-];
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation();

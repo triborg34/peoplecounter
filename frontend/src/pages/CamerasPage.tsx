@@ -211,7 +211,7 @@ export function CamerasPage() {
           <p className="text-gray-500 mt-1">افزودن، ویرایش و نظارت بر دوربین‌های شمارش</p>
         </div>
         <button onClick={openCreateModal} className="btn-primary">
-          <PlusIcon className="w-5 h-5 ml-2" />
+          <PlusIcon className="w-5 h-5 me-2" />
           افزودن دوربین
         </button>
       </div>
@@ -221,13 +221,13 @@ export function CamerasPage() {
         <div className="card-body">
           <div className="flex flex-col sm:flex-row gap-4">
             <div className="relative flex-1">
-              <MagnifyingGlassIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <MagnifyingGlassIcon className="absolute end-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type="search"
                 placeholder="جستجو در نام، مکان، آدرس..."
                 value={search}
                 onChange={(e) => handleSearch(e.target.value)}
-                className="input-field pr-10"
+                className="input-field pe-10"
               />
             </div>
             <div className="flex gap-2">
@@ -259,7 +259,7 @@ export function CamerasPage() {
               </p>
               {!search && (
                 <button onClick={openCreateModal} className="btn-primary mt-4">
-                  <PlusIcon className="w-5 h-5 ml-2" />
+                  <PlusIcon className="w-5 h-5 me-2" />
                   افزودن دوربین
                 </button>
               )}
@@ -276,7 +276,7 @@ export function CamerasPage() {
                       <th>وضعیت</th>
                       <th>تشخیص</th>
                       <th>FPS</th>
-                      <th className="text-left">عملیات</th>
+                      <th className="text-end">عملیات</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -323,7 +323,7 @@ export function CamerasPage() {
                           <span className="text-gray-600 font-mono">{camera.live_fps?.toFixed(1) || '0.0'}</span>
                         </td>
                         <td>
-                          <div className="flex items-center gap-2 text-left">
+                          <div className="flex items-center gap-2 text-end">
                             <button
                               onClick={() => handleView(camera)}
                               className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"

@@ -197,7 +197,7 @@ export function UsersPage() {
           <p className="text-gray-500 mt-1">افزودن، ویرایش و مدیریت دسترسی کاربران</p>
         </div>
         <button onClick={openCreateModal} className="btn-primary">
-          <PlusIcon className="w-5 h-5 ml-2" />
+          <PlusIcon className="w-5 h-5 me-2" />
           افزودن کاربر
         </button>
       </div>
@@ -207,13 +207,13 @@ export function UsersPage() {
         <div className="card-body">
           <div className="flex gap-4">
             <div className="relative flex-1">
-              <MagnifyingGlassIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <MagnifyingGlassIcon className="absolute end-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
               <input
                 type="search"
                 placeholder="جستجو در نام کاربری، نام، ایمیل..."
                 value={search}
                 onChange={(e) => handleSearch(e.target.value)}
-                className="input-field pr-10"
+                className="input-field pe-10"
               />
             </div>
           </div>
@@ -236,7 +236,7 @@ export function UsersPage() {
               </p>
               {!search && (
                 <button onClick={openCreateModal} className="btn-primary mt-4">
-                  <PlusIcon className="w-5 h-5 ml-2" />
+                  <PlusIcon className="w-5 h-5 me-2" />
                   افزودن کاربر
                 </button>
               )}
@@ -253,7 +253,7 @@ export function UsersPage() {
                       <th>وضعیت</th>
                       <th>آخرین ورود</th>
                       <th>تاریخ ایجاد</th>
-                      <th className="text-left">عملیات</th>
+                      <th className="text-end">عملیات</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -293,7 +293,7 @@ export function UsersPage() {
                         </td>
                         <td className="text-sm text-gray-500">{user.created_at ? formatDate(user.created_at) : '—'}</td>
                         <td>
-                          <div className="flex items-center gap-2 text-left">
+                          <div className="flex items-center gap-2 text-end">
                             <button
                               onClick={() => openEditModal(user)}
                               className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-colors"
