@@ -68,6 +68,12 @@ def get_current_user(
         raise HTTPException(status_code=401, detail="Invalid API key")
 
     if credentials is None or not credentials.credentials:
+        # Allow a token via query string for media endpoints (e.g. <img src> MJPEG
+        # streams and WebSocket-style clients) that cannot set headers.
+        query_token = request.query_params.get("token")
+        if query_token:
+            credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=query_token)
+    if credentials is None or not credentials.credentials:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         payload = auth_service.decode_token(credentials.credentials)

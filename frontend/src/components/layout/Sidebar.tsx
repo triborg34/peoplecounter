@@ -26,7 +26,7 @@ const navigation = [
 
 export function Sidebar({ isOpen, onClose }: SidebarProps) {
   const location = useLocation();
-  const { user, hasPermission } = useAuth();
+  const { user, hasPermission, logout } = useAuth();
 
   const filteredNav = navigation.filter((item) => hasPermission(item.permission));
 
@@ -103,7 +103,6 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             </div>
             <button
               onClick={async () => {
-                const { logout } = useAuth();
                 await logout();
               }}
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 transition-colors dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white"

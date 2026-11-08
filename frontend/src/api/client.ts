@@ -1,7 +1,34 @@
 import axios, { type AxiosInstance, type AxiosError, type InternalAxiosRequestConfig } from 'axios';
+import type {
+  Camera,
+  CameraCreate,
+  CameraUpdate,
+  Line,
+  LineCreate,
+  Area,
+  AreaCreate,
+  User,
+  PaginatedResponse,
+  ReportSummary,
+  CountStats,
+  LiveCount,
+  GlobalCountsOut,
+} from './types';
 
-// API base URL - points to the FastAPI backend
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000/api/v1';
+
+// The backend list endpoints return plain arrays. Wrap them in a
+// paginated envelope so pages can keep using `.items` / `.total`.
+function paginate<T>(items: T[], page = 1, size = 20): PaginatedResponse<T> {
+  const total = items.length;
+  return {
+    items,
+    total,
+    page,
+    size,
+    pages: Math.max(1, Math.ceil(total / size)),
+  };
+}
 
 class ApiClient {
   private client: AxiosInstance;
@@ -16,9 +43,7 @@ class ApiClient {
   constructor() {
     this.client = axios.create({
       baseURL: API_BASE_URL,
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       timeout: 30000,
     });
 
@@ -46,7 +71,6 @@ class ApiClient {
   }
 
   private setupInterceptors() {
-    // Request interceptor - add auth header
     this.client.interceptors.request.use(
       (config: InternalAxiosRequestConfig) => {
         if (this.accessToken && config.headers) {
@@ -57,7 +81,6 @@ class ApiClient {
       (error) => Promise.reject(error)
     );
 
-    // Response interceptor - handle token refresh
     this.client.interceptors.response.use(
       (response) => response,
       async (error: AxiosError) => {
@@ -65,7 +88,6 @@ class ApiClient {
 
         if (error.response?.status === 401 && !originalRequest._retry && this.refreshToken) {
           if (this.isRefreshing) {
-            // Queue the request
             return new Promise((resolve, reject) => {
               this.failedQueue.push({ resolve, reject });
             })
@@ -80,13 +102,12 @@ class ApiClient {
           this.isRefreshing = true;
 
           try {
+            // The refresh endpoint expects { refresh_token } and returns a full TokenResponse.
             const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
               refresh_token: this.refreshToken,
             });
-
             const { access_token, refresh_token } = response.data;
             this.saveTokens(access_token, refresh_token);
-
             this.processQueue(null, access_token);
             originalRequest.headers!.Authorization = `Bearer ${access_token}`;
             return this.client(originalRequest);
@@ -107,32 +128,26 @@ class ApiClient {
 
   private processQueue(error: Error | null, token: string) {
     this.failedQueue.forEach(({ resolve, reject }) => {
-      if (error) {
-        reject(error);
-      } else {
-        resolve(token);
-      }
+      if (error) reject(error);
+      else resolve(token);
     });
     this.failedQueue = [];
   }
 
-  // Auth methods
+  // ---- Auth ----------------------------------------------------------
   async login(username: string, password: string) {
     const response = await this.client.post('/auth/login', { username, password });
     const { access_token, refresh_token, user } = response.data;
     this.saveTokens(access_token, refresh_token);
-    return { user, access_token, refresh_token };
+    return { user: user as User, access_token, refresh_token };
   }
 
   async logout() {
-    try {
-      await this.client.post('/auth/logout');
-    } finally {
-      this.clearTokens();
-    }
+    // The backend has no logout endpoint (JWTs are stateless); just drop tokens.
+    this.clearTokens();
   }
 
-  async getCurrentUser() {
+  async getCurrentUser(): Promise<User> {
     const response = await this.client.get('/auth/me');
     return response.data;
   }
@@ -145,186 +160,234 @@ class ApiClient {
     return response.data;
   }
 
-  // Camera methods
+  // ---- Cameras -------------------------------------------------------
   async getCameras(params?: { page?: number; size?: number; search?: string }) {
-    const response = await this.client.get('/cameras', { params });
-    return response.data;
+    const response = await this.client.get<Camera[]>('/cameras');
+    let items = response.data;
+    if (params?.search) {
+      const q = params.search.toLowerCase();
+      items = items.filter(
+        (c) =>
+          c.name.toLowerCase().includes(q) ||
+          (c.location || '').toLowerCase().includes(q) ||
+          (c.host || '').toLowerCase().includes(q)
+      );
+    }
+    return paginate(items, params?.page ?? 1, params?.size ?? 20);
   }
 
-  async getCamera(id: number) {
+  async getCamera(id: number): Promise<Camera> {
     const response = await this.client.get(`/cameras/${id}`);
     return response.data;
   }
 
-  async createCamera(data: any) {
+  async createCamera(data: CameraCreate): Promise<Camera> {
     const response = await this.client.post('/cameras', data);
     return response.data;
   }
 
-  async updateCamera(id: number, data: any) {
-    const response = await this.client.put(`/cameras/${id}`, data);
+  async updateCamera(id: number, data: CameraUpdate): Promise<Camera> {
+    const response = await this.client.patch(`/cameras/${id}`, data);
     return response.data;
   }
 
   async deleteCamera(id: number) {
-    const response = await this.client.delete(`/cameras/${id}`);
+    await this.client.delete(`/cameras/${id}`);
+  }
+
+  async testCameraConnection(id: number) {
+    const response = await this.client.post(`/cameras/${id}/test`);
     return response.data;
   }
 
-  async getCameraStreamUrl(id: number) {
-    const response = await this.client.get(`/cameras/${id}/stream`);
+  async getCameraStatus(id: number) {
+    const response = await this.client.get(`/cameras/${id}/status`);
     return response.data;
   }
 
-  async getCameraSnapshot(id: number) {
-    const response = await this.client.get(`/cameras/${id}/snapshot`, {
-      responseType: 'blob',
-    });
+  /** MJPEG stream URL (needs the bearer token, so we return a URL with the token). */
+  getCameraStreamUrl(id: number): string {
+    const token = this.accessToken ? `?token=${encodeURIComponent(this.accessToken)}` : '';
+    return `${API_BASE_URL}/cameras/${id}/stream${token}`;
+  }
+
+  async getCameraSnapshot(id: number): Promise<string> {
+    const response = await this.client.get(`/cameras/${id}/snapshot`, { responseType: 'blob' });
     return URL.createObjectURL(response.data);
   }
 
-  async toggleCamera(id: number, enabled: boolean) {
-    const response = await this.client.patch(`/cameras/${id}/toggle`, { enabled });
+  async toggleCamera(id: number, enabled: boolean): Promise<Camera> {
+    const response = await this.client.patch(`/cameras/${id}`, { enabled });
     return response.data;
   }
 
-  // Zone methods
-  async getZones(cameraId: number) {
-    const response = await this.client.get(`/cameras/${cameraId}/zones`);
+  // ---- Lines (counting lines) ---------------------------------------
+  async getLines(cameraId: number): Promise<Line[]> {
+    const response = await this.client.get(`/cameras/${cameraId}/lines`);
     return response.data;
   }
 
-  async createZone(cameraId: number, data: any) {
-    const response = await this.client.post(`/cameras/${cameraId}/zones`, data);
+  async createLine(cameraId: number, data: LineCreate): Promise<Line> {
+    const response = await this.client.post(`/cameras/${cameraId}/lines`, data);
     return response.data;
   }
 
-  async updateZone(cameraId: number, zoneId: number, data: any) {
-    const response = await this.client.put(`/cameras/${cameraId}/zones/${zoneId}`, data);
+  async updateLine(cameraId: number, lineId: number, data: Partial<LineCreate>): Promise<Line> {
+    const response = await this.client.patch(`/cameras/${cameraId}/lines/${lineId}`, data);
     return response.data;
   }
 
-  async deleteZone(cameraId: number, zoneId: number) {
-    const response = await this.client.delete(`/cameras/${cameraId}/zones/${zoneId}`);
+  async deleteLine(cameraId: number, lineId: number) {
+    await this.client.delete(`/cameras/${cameraId}/lines/${lineId}`);
+  }
+
+  // ---- Areas (counting areas) ---------------------------------------
+  async getAreas(cameraId: number): Promise<Area[]> {
+    const response = await this.client.get(`/cameras/${cameraId}/areas`);
     return response.data;
   }
 
-  // Count methods
-  async getCounts(params?: {
-    camera_id?: number;
-    zone_id?: number;
-    start_time?: string;
-    end_time?: string;
-    page?: number;
-    size?: number;
-  }) {
-    const response = await this.client.get('/counts', { params });
+  async createArea(cameraId: number, data: AreaCreate): Promise<Area> {
+    const response = await this.client.post(`/cameras/${cameraId}/areas`, data);
+    return response.data;
+  }
+
+  async updateArea(cameraId: number, areaId: number, data: Partial<AreaCreate>): Promise<Area> {
+    const response = await this.client.patch(`/cameras/${cameraId}/areas/${areaId}`, data);
+    return response.data;
+  }
+
+  async deleteArea(cameraId: number, areaId: number) {
+    await this.client.delete(`/cameras/${cameraId}/areas/${areaId}`);
+  }
+
+  // ---- Counts --------------------------------------------------------
+  async getCounts(): Promise<GlobalCountsOut> {
+    const response = await this.client.get('/counts');
     return response.data;
   }
 
   async getCountStats(params?: {
-    camera_id?: number;
-    zone_id?: number;
-    start_time?: string;
-    end_time?: string;
+    start?: string;
+    end?: string;
     interval?: string;
-  }) {
+    camera_id?: number;
+  }): Promise<CountStats> {
     const response = await this.client.get('/counts/stats', { params });
     return response.data;
   }
 
-  async getLiveCounts() {
+  async getLiveCounts(): Promise<LiveCount[]> {
     const response = await this.client.get('/counts/live');
     return response.data;
   }
 
-  // Report methods
-  async getReports(params?: {
-    camera_id?: number;
-    zone_id?: number;
-    start_date?: string;
-    end_date?: string;
-    page?: number;
-    size?: number;
-  }) {
-    const response = await this.client.get('/reports', { params });
+  async getCountEvents(params?: Record<string, unknown>) {
+    const response = await this.client.get('/counts/events', { params });
     return response.data;
   }
 
-  async generateReport(data: {
-    camera_id?: number;
-    zone_id?: number;
-    start_date: string;
-    end_date: string;
-    format: 'pdf' | 'excel';
-  }) {
-    const response = await this.client.post('/reports/generate', data, {
+  // ---- Reports -------------------------------------------------------
+  async getReportSummary(params: {
+    start?: string;
+    end?: string;
+    camera_id?: number[];
+    kind?: string;
+    target_id?: number;
+    direction?: string;
+    interval?: string;
+  }): Promise<ReportSummary> {
+    const response = await this.client.get('/reports/summary', {
+      params,
+      paramsSerializer: { indexes: null },
+    });
+    return response.data;
+  }
+
+  /** Download a CSV / Excel / PDF export as a Blob. */
+  async exportReport(params: {
+    format: 'csv' | 'excel' | 'pdf';
+    start?: string;
+    end?: string;
+    camera_id?: number[];
+    kind?: string;
+    direction?: string;
+  }): Promise<Blob> {
+    const response = await this.client.get('/reports/export', {
+      params,
+      paramsSerializer: { indexes: null },
       responseType: 'blob',
     });
     return response.data;
   }
 
-  async getReportStats(params?: {
-    camera_id?: number;
-    zone_id?: number;
-    start_date?: string;
-    end_date?: string;
-  }) {
-    const response = await this.client.get('/reports/stats', { params });
-    return response.data;
-  }
-
-  // User methods (admin only)
+  // ---- Users ---------------------------------------------------------
   async getUsers(params?: { page?: number; size?: number; search?: string }) {
-    const response = await this.client.get('/users', { params });
-    return response.data;
+    const response = await this.client.get<User[]>('/users');
+    let items = response.data;
+    if (params?.search) {
+      const q = params.search.toLowerCase();
+      items = items.filter(
+        (u) =>
+          u.username.toLowerCase().includes(q) ||
+          (u.full_name || '').toLowerCase().includes(q) ||
+          (u.email || '').toLowerCase().includes(q)
+      );
+    }
+    return paginate(items, params?.page ?? 1, params?.size ?? 20);
   }
 
-  async getUser(id: number) {
+  async getUser(id: number): Promise<User> {
     const response = await this.client.get(`/users/${id}`);
     return response.data;
   }
 
-  async createUser(data: any) {
+  async createUser(data: {
+    username: string;
+    password: string;
+    full_name?: string;
+    email?: string;
+    role?: string;
+  }): Promise<User> {
     const response = await this.client.post('/users', data);
     return response.data;
   }
 
-  async updateUser(id: number, data: any) {
-    const response = await this.client.put(`/users/${id}`, data);
+  async updateUser(id: number, data: Partial<User> & { password?: string }): Promise<User> {
+    const response = await this.client.patch(`/users/${id}`, data);
     return response.data;
   }
 
   async deleteUser(id: number) {
-    const response = await this.client.delete(`/users/${id}`);
+    await this.client.delete(`/users/${id}`);
+  }
+
+  async toggleUserStatus(id: number, isActive: boolean): Promise<User> {
+    const response = await this.client.patch(`/users/${id}`, { is_active: isActive });
     return response.data;
   }
 
-  async toggleUserStatus(id: number, isActive: boolean) {
-    const response = await this.client.patch(`/users/${id}/toggle`, { is_active: isActive });
+  async getAuditLog(params?: { limit?: number }) {
+    const response = await this.client.get('/users/audit', { params });
     return response.data;
   }
 
-  // Settings methods
-  async getSettings() {
-    const response = await this.client.get('/settings');
+  /** Public health/system status (no auth required). */
+  async getSystemStatus() {
+    // /health is outside the /api/v1 prefix, so hit it explicitly.
+    const base = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+    const response = await axios.get(`${base}/health`);
     return response.data;
   }
 
-  async updateSettings(data: any) {
-    const response = await this.client.put('/settings', data);
-    return response.data;
-  }
-
-  // WebSocket connection for live updates
+  // ---- WebSocket -----------------------------------------------------
   createWebSocket(path: string): WebSocket {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = API_BASE_URL.replace(/^https?:\/\//, '').replace(/\/api\/v1/, '');
-    const ws = new WebSocket(`${protocol}//${host}/ws${path}`);
-    return ws;
+    const host = API_BASE_URL.replace(/^https?:\/\//, '').replace(/\/api\/v1.*$/, '');
+    const token = this.accessToken ? `?token=${encodeURIComponent(this.accessToken)}` : '';
+    return new WebSocket(`${protocol}//${host}/api/v1${path}${token}`);
   }
 
-  // Token getters
   getAccessToken(): string | null {
     return this.accessToken;
   }

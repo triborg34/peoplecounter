@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/client';
-import { type Camera, type DashboardStats, type LiveCount } from '../api/types';
+import { type Camera, type LiveCount } from '../api/types';
+
+interface DashboardStats {
+  total_cameras: number;
+  online_cameras: number;
+  offline_cameras: number;
+  total_counts_today: number;
+  total_in_today: number;
+  total_out_today: number;
+  active_zones: number;
+}
 import {
   VideoCameraIcon,
   ArrowPathIcon,
@@ -38,7 +48,7 @@ export function DashboardPage() {
         total_counts_today: (statsRes.total_in || 0) + (statsRes.total_out || 0),
         total_in_today: statsRes.total_in || 0,
         total_out_today: statsRes.total_out || 0,
-        active_zones: camerasRes.items?.reduce((acc: number, c: Camera) => acc + (c.zone_count || 0), 0) || 0,
+        active_zones: 0,
       });
       setCameras(camerasRes.items || []);
     } catch (err: any) {
@@ -334,7 +344,7 @@ function CameraTile({ camera, liveCount, onClick, onToggle }: CameraTileProps) {
         <div className="flex items-center gap-3 mt-2 text-xs text-gray-500">
           <span className="flex items-center gap-1">
             <Squares2X2Icon className="w-3.5 h-3.5" />
-            {camera.zone_count || 0} منطقه
+            {camera.live_fps?.toFixed(1) || '0.0'} FPS
           </span>
           {liveCount && (
             <>

@@ -5,6 +5,7 @@ import { Layout } from './components/layout/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { CamerasPage } from './pages/CamerasPage';
+import { CameraDetailPage } from './pages/CameraDetailPage';
 import { ZonesPage } from './pages/ZonesPage';
 import { ReportsPage } from './pages/ReportsPage';
 import { UsersPage } from './pages/UsersPage';
@@ -68,7 +69,7 @@ function AppRoutes() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/cameras" element={<CamerasPage />} />
         <Route path="/cameras/new" element={<CamerasPage />} />
-        <Route path="/cameras/:id" element={<CamerasPage />} />
+        <Route path="/cameras/:id" element={<CameraDetailPage />} />
         <Route path="/zones" element={<ZonesPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/users" element={<UsersPage />} />

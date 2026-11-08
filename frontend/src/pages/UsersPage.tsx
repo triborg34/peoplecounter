@@ -37,7 +37,8 @@ export function UsersPage() {
     setLoading(true);
     try {
       const res = await api.getUsers({ page, size: 20, search: search || undefined });
-      setUsers(res.items);
+      const start = (page - 1) * 20;
+      setUsers(res.items.slice(start, start + 20));
       setTotalPages(res.pages);
       setTotalItems(res.total);
     } catch (err) {
@@ -111,13 +112,16 @@ export function UsersPage() {
 
     setSubmitting(true);
     try {
-      const submitData = {
+      const submitData: any = {
         username: formData.username,
         email: formData.email || null,
-        full_name: formData.full_name || null,
+        full_name: formData.full_name || '',
         role: formData.role,
         is_active: formData.is_active,
-      } as any;
+      };
+
+      // The backend rejects a null email on create; drop empties.
+      if (!submitData.email) delete submitData.email;
 
       if (formData.password) {
         submitData.password = formData.password;
@@ -285,9 +289,9 @@ export function UsersPage() {
                           </span>
                         </td>
                         <td className="text-sm text-gray-500">
-                          {user.last_login ? formatDate(user.last_login) : 'هرگز'}
+                          {user.last_login_at ? formatDate(user.last_login_at) : 'هرگز'}
                         </td>
-                        <td className="text-sm text-gray-500">{formatDate(user.created_at)}</td>
+                        <td className="text-sm text-gray-500">{user.created_at ? formatDate(user.created_at) : '—'}</td>
                         <td>
                           <div className="flex items-center gap-2 text-left">
                             <button

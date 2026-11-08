@@ -13,7 +13,30 @@ import {
   PauseIcon,
   XMarkIcon,
   CheckIcon,
+  VideoCameraIcon,
 } from '@heroicons/react/24/outline';
+
+type CameraForm = CameraCreate & {
+  mode: 'manual' | 'url' | 'file';
+  port: number;
+  rtsp_path: string;
+};
+
+const emptyForm = (): CameraForm => ({
+  name: '',
+  location: '',
+  mode: 'url',
+  host: '',
+  port: 554,
+  username: '',
+  password: '',
+  rtsp_path: '',
+  url: '',
+  file_path: '',
+  fps_limit: 10,
+  detection_enabled: true,
+  enabled: true,
+});
 
 export function CamerasPage() {
   const navigate = useNavigate();
@@ -25,15 +48,7 @@ export function CamerasPage() {
   const [totalItems, setTotalItems] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [editingCamera, setEditingCamera] = useState<Camera | null>(null);
-  const [formData, setFormData] = useState<CameraCreate & { detection_confidence: number }>({
-    name: '',
-    location: '',
-    source_type: 'rtsp',
-    source_url: '',
-    enabled: true,
-    detection_enabled: true,
-    detection_confidence: 0.4,
-  });
+  const [formData, setFormData] = useState<CameraForm>(emptyForm());
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
@@ -41,7 +56,9 @@ export function CamerasPage() {
     setLoading(true);
     try {
       const res = await api.getCameras({ page, size: 20, search: search || undefined });
-      setCameras(res.items);
+      // Client-side pagination over the array the backend returns.
+      const start = (page - 1) * 20;
+      setCameras(res.items.slice(start, start + 20));
       setTotalPages(res.pages);
       setTotalItems(res.total);
     } catch (err) {
@@ -62,15 +79,7 @@ export function CamerasPage() {
 
   const openCreateModal = () => {
     setEditingCamera(null);
-    setFormData({
-      name: '',
-      location: '',
-      source_type: 'rtsp',
-      source_url: '',
-      enabled: true,
-      detection_enabled: true,
-      detection_confidence: 0.4,
-    });
+    setFormData(emptyForm());
     setFormErrors({});
     setShowModal(true);
   };
@@ -80,17 +89,17 @@ export function CamerasPage() {
     setFormData({
       name: camera.name,
       location: camera.location || '',
-      source_type: camera.source_type,
-      source_url: camera.source_url,
-      enabled: camera.enabled,
+      mode: camera.source_type === 'file' ? 'file' : 'manual',
+      host: camera.host || '',
+      port: camera.port || 554,
       username: camera.username || '',
       password: '',
-      width: camera.width || undefined,
-      height: camera.height || undefined,
-      fps: camera.fps || undefined,
+      rtsp_path: camera.rtsp_path || '',
+      url: '',
+      file_path: camera.file_path || '',
+      fps_limit: camera.fps_limit || 10,
       detection_enabled: camera.detection_enabled,
-      detection_confidence: camera.detection_confidence,
-      detection_classes: camera.detection_classes || undefined,
+      enabled: camera.enabled,
     });
     setFormErrors({});
     setShowModal(true);
@@ -105,9 +114,14 @@ export function CamerasPage() {
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {};
     if (!formData.name.trim()) errors.name = 'نام دوربین الزامی است';
-    if (!formData.source_url.trim()) errors.source_url = 'آدرس منبع الزامی است';
-    if (formData.detection_confidence < 0 || formData.detection_confidence > 1) {
-      errors.detection_confidence = 'باید بین ۰ و ۱ باشد';
+    if (formData.mode === 'url' && !(formData.url || '').trim()) {
+      errors.url = 'آدرس RTSP الزامی است';
+    }
+    if (formData.mode === 'manual' && !(formData.host || '').trim()) {
+      errors.host = 'آدرس IP الزامی است';
+    }
+    if (formData.mode === 'file' && !(formData.file_path || '').trim()) {
+      errors.file_path = 'مسیر فایل الزامی است';
     }
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -119,11 +133,26 @@ export function CamerasPage() {
 
     setSubmitting(true);
     try {
-      const submitData = { ...formData };
-      // Don't send empty password
-      if (!submitData.password) {
-        delete submitData.password;
+      const submitData: CameraCreate = {
+        name: formData.name,
+        location: formData.location,
+        mode: formData.mode,
+        fps_limit: formData.fps_limit,
+        detection_enabled: formData.detection_enabled,
+        enabled: formData.enabled,
+      };
+      if (formData.mode === 'url') {
+        submitData.url = formData.url;
+      } else if (formData.mode === 'file') {
+        submitData.file_path = formData.file_path;
+      } else {
+        submitData.host = formData.host;
+        submitData.port = formData.port;
+        submitData.username = formData.username || undefined;
+        submitData.rtsp_path = formData.rtsp_path || '';
       }
+      // Only send a password when the user typed one.
+      if (formData.password) submitData.password = formData.password;
 
       if (editingCamera) {
         await api.updateCamera(editingCamera.id, submitData);
@@ -172,13 +201,6 @@ export function CamerasPage() {
   const handleZones = (camera: Camera) => {
     navigate(`/zones?camera=${camera.id}`);
   };
-
-  const sourceTypes = [
-    { value: 'rtsp', label: 'RTSP' },
-    { value: 'http', label: 'HTTP/MJPEG' },
-    { value: 'file', label: 'فایل ویدیویی' },
-    { value: 'usb', label: 'دوربین USB' },
-  ];
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -253,7 +275,7 @@ export function CamerasPage() {
                       <th>موقعیت</th>
                       <th>وضعیت</th>
                       <th>تشخیص</th>
-                      <th>منطقه‌ها</th>
+                      <th>FPS</th>
                       <th className="text-left">عملیات</th>
                     </tr>
                   </thead>
@@ -270,8 +292,14 @@ export function CamerasPage() {
                         </td>
                         <td>
                           <div className="flex items-center gap-2">
-                            <span className="badge badge-info text-xs">{camera.source_type.toUpperCase()}</span>
-                            <span className="text-xs text-gray-500 truncate max-w-xs">{camera.source_url}</span>
+                            <span className="badge badge-info text-xs">
+                              {camera.source_type === 'file' ? 'فایل' : 'RTSP'}
+                            </span>
+                            <span className="text-xs text-gray-500 truncate max-w-xs">
+                              {camera.source_type === 'file'
+                                ? camera.file_path
+                                : camera.rtsp_url || `${camera.host || ''}:${camera.port || ''}`}
+                            </span>
                           </div>
                         </td>
                         <td>
@@ -288,11 +316,11 @@ export function CamerasPage() {
                         </td>
                         <td>
                           <span className={camera.detection_enabled ? 'badge badge-success' : 'badge badge-gray'}>
-                            {camera.detection_enabled ? `فعال (${Math.round(camera.detection_confidence * 100)}%)` : 'غیرفعال'}
+                            {camera.detection_enabled ? 'فعال' : 'غیرفعال'}
                           </span>
                         </td>
                         <td>
-                          <span className="text-gray-600">{camera.zone_count || 0}</span>
+                          <span className="text-gray-600 font-mono">{camera.live_fps?.toFixed(1) || '0.0'}</span>
                         </td>
                         <td>
                           <div className="flex items-center gap-2 text-left">
@@ -418,105 +446,136 @@ export function CamerasPage() {
               </div>
 
               <div>
-                <label htmlFor="source_type" className="label-field">نوع منبع <span className="text-red-500">*</span></label>
+                <label htmlFor="mode" className="label-field">نوع اتصال <span className="text-red-500">*</span></label>
                 <select
-                  id="source_type"
-                  value={formData.source_type}
-                  onChange={(e) => setFormData({ ...formData, source_type: e.target.value as any })}
+                  id="mode"
+                  value={formData.mode}
+                  onChange={(e) => setFormData({ ...formData, mode: e.target.value as CameraForm['mode'] })}
                   className="input-field"
                 >
-                  {sourceTypes.map((t) => (
-                    <option key={t.value} value={t.value}>{t.label}</option>
-                  ))}
+                  <option value="url">آدرس کامل RTSP</option>
+                  <option value="manual">IP + کاربر + رمز</option>
+                  <option value="file">فایل ویدیویی</option>
                 </select>
               </div>
 
-              <div>
-                <label htmlFor="source_url" className="label-field">آدرس منبع <span className="text-red-500">*</span></label>
-                <input
-                  id="source_url"
-                  type="text"
-                  value={formData.source_url}
-                  onChange={(e) => setFormData({ ...formData, source_url: e.target.value })}
-                  className={`input-field ${formErrors.source_url ? 'border-red-500 focus:ring-red-500' : ''}`}
-                  placeholder={formData.source_type === 'rtsp' ? 'rtsp://user:pass@ip:554/stream' : 'http://ip:port/video.mjpg'}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                  {formData.source_type === 'rtsp' && 'نمونه: rtsp://admin:1234@192.168.1.100:554/h264'}
-                  {formData.source_type === 'http' && 'نمونه: http://192.168.1.100:8080/video.mjpg'}
-                  {formData.source_type === 'file' && 'مسیر فایل ویدیویی در سرور'}
-                  {formData.source_type === 'usb' && 'شماره دستگاه (مثال: 0 برای اولین دوربین)'}
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {formData.mode === 'url' && (
                 <div>
-                  <label htmlFor="username" className="label-field">نام کاربری</label>
+                  <label htmlFor="url" className="label-field">آدرس RTSP <span className="text-red-500">*</span></label>
                   <input
-                    id="username"
+                    id="url"
                     type="text"
-                    value={formData.username || ''}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    className="input-field"
-                    placeholder="اختیاری"
+                    value={formData.url || ''}
+                    onChange={(e) => setFormData({ ...formData, url: e.target.value })}
+                    className={`input-field ${formErrors.url ? 'border-red-500 focus:ring-red-500' : ''}`}
+                    placeholder="rtsp://user:pass@ip:554/stream"
                   />
+                  {formErrors.url && <p className="text-red-500 text-sm mt-1">{formErrors.url}</p>}
                 </div>
-                <div>
-                  <label htmlFor="password" className="label-field">رمز عبور</label>
-                  <input
-                    id="password"
-                    type="password"
-                    value={formData.password || ''}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="input-field"
-                    placeholder={editingCamera ? 'خالی بگذارید تا تغییر نکند' : 'اختیاری'}
-                    autoComplete="new-password"
-                  />
-                </div>
-              </div>
+              )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {formData.mode === 'file' && (
                 <div>
-                  <label htmlFor="width" className="label-field">عرض (پیکسل)</label>
+                  <label htmlFor="file_path" className="label-field">مسیر فایل <span className="text-red-500">*</span></label>
                   <input
-                    id="width"
-                    type="number"
-                    value={formData.width || ''}
-                    onChange={(e) => setFormData({ ...formData, width: e.target.value ? parseInt(e.target.value) : undefined })}
-                    className="input-field"
-                    placeholder="اختیاری"
-                    min="0"
+                    id="file_path"
+                    type="text"
+                    value={formData.file_path || ''}
+                    onChange={(e) => setFormData({ ...formData, file_path: e.target.value })}
+                    className={`input-field ${formErrors.file_path ? 'border-red-500 focus:ring-red-500' : ''}`}
+                    placeholder="C:\\videos\\sample.mp4"
                   />
+                  {formErrors.file_path && <p className="text-red-500 text-sm mt-1">{formErrors.file_path}</p>}
                 </div>
-                <div>
-                  <label htmlFor="height" className="label-field">ارتفاع (پیکسل)</label>
-                  <input
-                    id="height"
-                    type="number"
-                    value={formData.height || ''}
-                    onChange={(e) => setFormData({ ...formData, height: e.target.value ? parseInt(e.target.value) : undefined })}
-                    className="input-field"
-                    placeholder="اختیاری"
-                    min="0"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="fps" className="label-field">FPS</label>
-                  <input
-                    id="fps"
-                    type="number"
-                    value={formData.fps || ''}
-                    onChange={(e) => setFormData({ ...formData, fps: e.target.value ? parseInt(e.target.value) : undefined })}
-                    className="input-field"
-                    placeholder="اختیاری"
-                    min="0"
-                  />
-                </div>
+              )}
+
+              {formData.mode === 'manual' && (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div className="sm:col-span-2">
+                      <label htmlFor="host" className="label-field">آدرس IP <span className="text-red-500">*</span></label>
+                      <input
+                        id="host"
+                        type="text"
+                        value={formData.host || ''}
+                        onChange={(e) => setFormData({ ...formData, host: e.target.value })}
+                        className={`input-field ${formErrors.host ? 'border-red-500 focus:ring-red-500' : ''}`}
+                        placeholder="192.168.1.100"
+                      />
+                      {formErrors.host && <p className="text-red-500 text-sm mt-1">{formErrors.host}</p>}
+                    </div>
+                    <div>
+                      <label htmlFor="port" className="label-field">پورت</label>
+                      <input
+                        id="port"
+                        type="number"
+                        value={formData.port || 554}
+                        onChange={(e) => setFormData({ ...formData, port: parseInt(e.target.value) || 554 })}
+                        className="input-field"
+                        min="1"
+                        max="65535"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label htmlFor="rtsp_path" className="label-field">مسیر RTSP</label>
+                    <input
+                      id="rtsp_path"
+                      type="text"
+                      value={formData.rtsp_path || ''}
+                      onChange={(e) => setFormData({ ...formData, rtsp_path: e.target.value })}
+                      className="input-field"
+                      placeholder="/Streaming/Channels/101"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                      <label htmlFor="username" className="label-field">نام کاربری</label>
+                      <input
+                        id="username"
+                        type="text"
+                        value={formData.username || ''}
+                        onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                        className="input-field"
+                        placeholder="اختیاری"
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="password" className="label-field">رمز عبور</label>
+                      <input
+                        id="password"
+                        type="password"
+                        value={formData.password || ''}
+                        onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                        className="input-field"
+                        placeholder={editingCamera ? 'خالی بگذارید تا تغییر نکند' : 'اختیاری'}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div>
+                <label htmlFor="fps_limit" className="label-field">محدودیت FPS (نرخ پردازش)</label>
+                <input
+                  id="fps_limit"
+                  type="number"
+                  value={formData.fps_limit || 10}
+                  onChange={(e) => setFormData({ ...formData, fps_limit: parseFloat(e.target.value) || 10 })}
+                  className="input-field"
+                  min="1"
+                  max="60"
+                  step="1"
+                />
+                <p className="text-xs text-gray-500 mt-1">حداکثر تعداد فریم در ثانیه برای پردازش تشخیص</p>
               </div>
 
               <div className="border-t border-gray-100 pt-5">
                 <h3 className="font-medium text-gray-900 mb-4">تنظیمات تشخیص</h3>
-                <div className="flex items-center gap-4">
+                <div className="flex flex-wrap items-center gap-6">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -526,26 +585,16 @@ export function CamerasPage() {
                     />
                     <span className="text-sm text-gray-700">فعال‌سازی تشخیص اشیاء</span>
                   </label>
-                </div>
-
-                {formData.detection_enabled && (
-                  <div className="mt-4">
-                    <label htmlFor="detection_confidence" className="label-field">
-                      حد اعتماد تشخیص: <span className="font-mono text-blue-600">{Math.round(formData.detection_confidence * 100)}%</span>
-                    </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
                     <input
-                      id="detection_confidence"
-                      type="range"
-                      min="0"
-                      max="1"
-                      step="0.05"
-                      value={formData.detection_confidence}
-                      onChange={(e) => setFormData({ ...formData, detection_confidence: parseFloat(e.target.value) })}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      type="checkbox"
+                      checked={formData.enabled}
+                      onChange={(e) => setFormData({ ...formData, enabled: e.target.checked })}
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
                     />
-                    {formErrors.detection_confidence && <p className="text-red-500 text-sm mt-1">{formErrors.detection_confidence}</p>}
-                  </div>
-                )}
+                    <span className="text-sm text-gray-700">دوربین فعال باشد</span>
+                  </label>
+                </div>
               </div>
 
               <div className="flex justify-end gap-3 border-t border-gray-100 pt-5">
@@ -573,6 +622,3 @@ export function CamerasPage() {
     </div>
   );
 }
-
-// Need to import VideoCameraIcon
-import { VideoCameraIcon } from '@heroicons/react/24/outline';
