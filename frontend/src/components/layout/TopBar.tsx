@@ -34,7 +34,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
     <header className="top-bar" role="banner">
       <div className="flex items-center gap-4">
         <button
-          className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+          className="lg:hidden p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
           onClick={onMenuClick}
           aria-label="باز کردن منو"
         >
@@ -45,7 +45,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
 
         <div className="hidden sm:block w-64 sm:w-80">
           <div className="relative">
-            <MagnifyingGlassIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" aria-hidden="true" />
+            <MagnifyingGlassIcon className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400 dark:text-gray-500" aria-hidden="true" />
             <input
               type="search"
               placeholder="جستجو در دوربین‌ها، منطقه‌ها..."
@@ -62,7 +62,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
         {/* Notifications */}
         <div className="relative">
           <button
-            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors relative"
+            className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors relative dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
             onClick={() => setNotificationsOpen(!notificationsOpen)}
             aria-label="اعلان‌ها"
             aria-expanded={notificationsOpen}
@@ -72,16 +72,16 @@ export function TopBar({ onMenuClick }: TopBarProps) {
           </button>
 
           {notificationsOpen && (
-            <div className="absolute left-0 mt-2 w-80 bg-white rounded-lg shadow-lg border border-gray-200 py-2 z-50 animate-fade-in">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <h3 className="font-medium text-gray-900">اعلان‌ها</h3>
+            <div className="absolute left-0 mt-2 w-80 bg-white dark:bg-gray-800 rounded-lg shadow-lg border border-gray-200 dark:border-gray-700 py-2 z-50 animate-fade-in">
+              <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-700">
+                <h3 className="font-medium text-gray-900 dark:text-white">اعلان‌ها</h3>
               </div>
               <div className="max-h-64 overflow-y-auto">
-                <div className="px-4 py-3 text-center text-gray-500 text-sm">
+                <div className="px-4 py-3 text-center text-gray-500 dark:text-gray-400 text-sm">
                   هیچ اعلانی وجود ندارد
                 </div>
               </div>
-              <div className="px-4 py-2 border-t border-gray-100">
+              <div className="px-4 py-2 border-t border-gray-100 dark:border-gray-700">
                 <button className="text-sm text-blue-600 hover:text-blue-700 w-full text-right">
                   مشاهده همه
                 </button>
@@ -93,7 +93,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
         {/* Dark mode toggle */}
         <button
           onClick={toggleDarkMode}
-          className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors"
+          className="p-2 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-gray-700 transition-colors dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
           aria-label={darkMode ? 'حالت روز' : 'حالت شب'}
         >
           {darkMode ? <SunIcon className="w-5 h-5" /> : <MoonIcon className="w-5 h-5" />}
@@ -102,7 +102,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
         {/* User menu */}
         <div className="relative">
           <button
-            className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+            className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-gray-100 transition-colors dark:hover:bg-gray-800"
             aria-label="منوی کاربر"
             aria-expanded="false"
           >
@@ -111,7 +111,7 @@ export function TopBar({ onMenuClick }: TopBarProps) {
                 {user?.full_name?.charAt(0) || user?.username?.charAt(0) || '؟'}
               </span>
             </div>
-            <span className="hidden md:block text-sm font-medium text-gray-700">
+            <span className="hidden md:block text-sm font-medium text-gray-700 dark:text-gray-300">
               {user?.full_name || user?.username}
             </span>
           </button>

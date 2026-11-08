@@ -68,6 +68,7 @@ function AppRoutes() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/cameras" element={<CamerasPage />} />
         <Route path="/cameras/new" element={<CamerasPage />} />
+        <Route path="/cameras/:id" element={<CamerasPage />} />
         <Route path="/zones" element={<ZonesPage />} />
         <Route path="/reports" element={<ReportsPage />} />
         <Route path="/users" element={<UsersPage />} />
