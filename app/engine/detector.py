@@ -54,10 +54,15 @@ class Detector:
         with self._lock:
             if self._model is not None:
                 return self._available
+            model_path = self._resolve_model_path()
+            if not model_path.exists():
+                self._available = False
+                self._error = f"Model file not found: {model_path}. Please download manually."
+                log.warning("Model file not found at %s. Detection disabled.", model_path)
+                return False
             try:
                 from ultralytics import YOLO
 
-                model_path = self._resolve_model_path()
                 log.info("Loading YOLO model %s on %s", model_path, self.device)
                 model = YOLO(str(model_path))
                 try:

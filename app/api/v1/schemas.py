@@ -260,6 +260,26 @@ class CountEventOut(BaseModel):
     confidence: float = 0.0
 
 
+class CountStatsOut(BaseModel):
+    total_in: int
+    total_out: int
+    net_count: int
+    by_camera: Dict[str, Dict[str, int]]
+    by_zone: Dict[str, Dict[str, int]]
+    timeline: List[Dict[str, Any]]
+
+
+class LiveCountOut(BaseModel):
+    camera_id: int
+    camera_name: str
+    zone_id: Optional[int] = None
+    zone_name: Optional[str] = None
+    current_count: int
+    total_in: int
+    total_out: int
+    last_event: Optional[CountEventOut] = None
+
+
 class ReportResponse(BaseModel):
     filters: Dict[str, Any]
     totals: Dict[str, int]
