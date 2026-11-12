@@ -17,5 +17,6 @@ models/
 *.db-shm
 .pytest_cache/
 .mypy_cache/
+node_modules/
 .idea/
 .vscode/
