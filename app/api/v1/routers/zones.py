@@ -19,6 +19,21 @@ log = logging.getLogger(__name__)
 router = APIRouter(tags=["zones"])
 
 
+def _sync_runtime(request: Request, camera_id: int) -> None:
+    """Push zone changes into the running engine, without failing the request.
+
+    The DB transaction is already committed at this point, so the change is
+    durable whether or not the live engine accepts it. Letting an exception
+    escape here (a dying camera, a stalled capture) turned a successful delete
+    into a 500: the row was gone but the client saw an error and left the
+    deleted item on screen until a manual refresh.
+    """
+    try:
+        request.app.state.runtime.sync_camera(camera_id)
+    except Exception:
+        log.exception("Failed to sync camera %s into the live engine", camera_id)
+
+
 def _require_camera(session: Session, camera_id: int) -> Camera:
     camera = session.get(Camera, camera_id)
     if camera is None:
@@ -59,7 +74,7 @@ def create_line(
     audit.record(session, "line_created", user=user, entity_type="line", entity_id=line.id,
                  details=payload.name, ip_address=client_ip(request))
     session.commit()
-    request.app.state.runtime.sync_camera(camera_id)
+    _sync_runtime(request, camera_id)
     return LineOut.model_validate(line)
 
 
@@ -91,7 +106,7 @@ def update_line(
     audit.record(session, "line_updated", user=user, entity_type="line", entity_id=line.id,
                  details=line.name, ip_address=client_ip(request))
     session.commit()
-    request.app.state.runtime.sync_camera(camera_id)
+    _sync_runtime(request, camera_id)
     return LineOut.model_validate(line)
 
 
@@ -111,7 +126,7 @@ def delete_line(
     audit.record(session, "line_deleted", user=user, entity_type="line", entity_id=line_id,
                  details=name, ip_address=client_ip(request))
     session.commit()
-    request.app.state.runtime.sync_camera(camera_id)
+    _sync_runtime(request, camera_id)
 
 
 # -- areas -------------------------------------------------------------
@@ -157,7 +172,7 @@ def create_area(
     audit.record(session, "area_created", user=user, entity_type="area", entity_id=area.id,
                  details=payload.name, ip_address=client_ip(request))
     session.commit()
-    request.app.state.runtime.sync_camera(camera_id)
+    _sync_runtime(request, camera_id)
     return _area_out(area)
 
 
@@ -194,7 +209,7 @@ def update_area(
     audit.record(session, "area_updated", user=user, entity_type="area", entity_id=area.id,
                  details=area.name, ip_address=client_ip(request))
     session.commit()
-    request.app.state.runtime.sync_camera(camera_id)
+    _sync_runtime(request, camera_id)
     return _area_out(area)
 
 
@@ -214,4 +229,4 @@ def delete_area(
     audit.record(session, "area_deleted", user=user, entity_type="area", entity_id=area_id,
                  details=name, ip_address=client_ip(request))
     session.commit()
-    request.app.state.runtime.sync_camera(camera_id)
+    _sync_runtime(request, camera_id)

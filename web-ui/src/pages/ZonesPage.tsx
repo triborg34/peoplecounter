@@ -27,6 +27,7 @@ export function ZonesPage() {
   const [loading, setLoading] = useState(false);
   const [snapshotKey, setSnapshotKey] = useState(Date.now());
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
 
   const [pending, setPending] = useState<{ kind: 'line' | 'area'; points: [number, number][] } | null>(null);
   const [pendingName, setPendingName] = useState('');
@@ -47,6 +48,11 @@ export function ZonesPage() {
       const [l, a] = await Promise.all([api.getLines(cameraId), api.getAreas(cameraId)]);
       setLines(l);
       setAreas(a);
+    } catch (err: any) {
+      // Previously an empty finally swallowed nothing, but a rejection here
+      // aborted the caller before setLines/setAreas ran, so the canvas kept
+      // showing deleted items. Surface it and keep the lists untouched.
+      setError(err?.response?.data?.detail || 'خطا در بارگذاری خطوط و مناطق');
     } finally {
       setLoading(false);
     }
@@ -156,12 +162,21 @@ export function ZonesPage() {
   async function deleteSelected() {
     if (!selected || !cameraId) return;
     if (!window.confirm('این مورد حذف شود؟')) return;
+    const target = { ...selected };
     setBusy(true);
     try {
-      if (selected.kind === 'line') await api.deleteLine(cameraId, selected.id);
-      else await api.deleteArea(cameraId, selected.id);
+      if (target.kind === 'line') await api.deleteLine(cameraId, target.id);
+      else await api.deleteArea(cameraId, target.id);
+      // Drop it locally first: the row is already gone in the database, so the
+      // canvas must not keep showing it even if the refetch below fails.
+      if (target.kind === 'line') setLines((prev) => prev.filter((l) => l.id !== target.id));
+      else setAreas((prev) => prev.filter((a) => a.id !== target.id));
       setSelected(null);
       await fetchZones();
+    } catch (err: any) {
+      setError(err?.response?.data?.detail || 'خطا در حذف');
+      // Re-sync with the server so the UI never diverges from the database.
+      await fetchZones().catch(() => {});
     } finally {
       setBusy(false);
     }
@@ -196,6 +211,13 @@ export function ZonesPage() {
           </Button>
         </div>
       </div>
+
+      {error && (
+        <div className="flex items-center justify-between gap-3 rounded-control border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          <span>{error}</span>
+          <button type="button" className="underline" onClick={() => setError('')}>بستن</button>
+        </div>
+      )}
 
       {!cameraId ? (
         <Card>
