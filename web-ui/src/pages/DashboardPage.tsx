@@ -75,10 +75,13 @@ export function DashboardPage() {
   const online = cameras.filter((c) => c.status === 'online').length;
   const trend = (stats?.timeline ?? []).slice(-12).map((t) => Number(t.total ?? t.count ?? t.in ?? 0));
 
+  const totalPeople = (stats?.total_in ?? 0) + (stats?.total_out ?? 0);
+
   const kpis = [
     { label: 'ورود امروز', value: faNumber(stats?.total_in ?? 0), trend },
     { label: 'خروج امروز', value: faNumber(stats?.total_out ?? 0), trend: trend.map((v) => -v) },
-    { label: 'افراد حاضر (خالص)', value: faNumber(stats?.net_count ?? 0) },
+    // Every crossing (IN + OUT), not the net difference.
+    { label: 'كل افراد', value: faNumber(totalPeople) },
     { label: 'دوربین‌های آنلاین', value: `${faNumber(online)} از ${faNumber(cameras.length)}` },
   ];
 

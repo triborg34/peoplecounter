@@ -102,6 +102,7 @@ class CameraWorker:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._capture = None
+        self._reader = None
         self._status = CameraStatus.STOPPED.value
         self._error = ""
         self._attempts = 0
@@ -159,6 +160,14 @@ class CameraWorker:
 
     def stop(self, timeout: float = 5.0) -> None:
         self._stop.set()
+        # Wake the RTSP reader if it is blocked waiting for a new frame.
+        reader = self._reader
+        if reader is not None:
+            try:
+                reader.release()
+            except Exception:
+                pass
+            self._reader = None
         if self._thread:
             self._thread.join(timeout=timeout)
             self._thread = None
@@ -232,6 +241,71 @@ class CameraWorker:
             self._capture = None
 
     def _run(self) -> None:
+        if self.source.source_type != "file":
+            self._run_fresh()
+        else:
+            self._run_file()
+
+    def _run_fresh(self) -> None:
+        """RTSP path: a decoder thread keeps the newest frame, we consume it.
+
+        Reading the capture directly here would couple decoding to publishing
+        and let the driver's buffer fill, so detected frames drift seconds
+        behind reality. FreshestFrame always hands us the current frame.
+        """
+        from .rtsp import FreshestFrame
+
+        min_interval = 1.0 / self.source.fps_limit if self.source.fps_limit > 0 else 0.0
+        timeout_ms = int(max(1000, self.settings.camera_frame_timeout_s * 1000)) if self.settings else 5000
+
+        reader = FreshestFrame(
+            self.source.url,
+            name="decode-" + str(self.source.camera_id),
+            open_timeout_ms=timeout_ms,
+            on_status=self._on_reader_status,
+        )
+        self._reader = reader
+        last_seq = -1
+        try:
+            while not self._stop.is_set():
+                started = time.monotonic()
+                seq, frame = reader.read(wait=True, timeout=1.0)
+                if frame is None or seq == last_seq:
+                    # Nothing new yet: avoid spinning, and do not republish.
+                    if self._stop.wait(0.01):
+                        break
+                    continue
+                last_seq = seq
+                self._publish(frame)
+                elapsed = time.monotonic() - started
+                if min_interval > elapsed:
+                    self._stop.wait(min_interval - elapsed)
+        finally:
+            self._reader = None
+            reader.release()
+
+    def _on_reader_status(self, status: str) -> None:
+        if status == "online":
+            self._attempts = 0
+            self._set_status(CameraStatus.ONLINE.value, "")
+            log.info("Camera '%s' connected (%s)", self.source.name, self._describe())
+        elif status == "reconnecting":
+            self._attempts += 1
+            self._set_status(CameraStatus.RECONNECTING.value, "stream disconnected")
+
+    def _publish(self, frame: Frame) -> None:
+        now = time.time()
+        self.bus.publish(self.source.camera_id, frame, now)
+        self._frames += 1
+        self._last_frame_ts = now
+        self._fps_window.append(now)
+        if len(self._fps_window) > 30:
+            self._fps_window.pop(0)
+        if len(self._fps_window) > 1:
+            span = self._fps_window[-1] - self._fps_window[0]
+            self._fps = (len(self._fps_window) - 1) / span if span > 0 else 0.0
+
+    def _run_file(self) -> None:
         min_interval = 1.0 / self.source.fps_limit if self.source.fps_limit > 0 else 0.0
         while not self._stop.is_set():
             if self._capture is None:
@@ -243,26 +317,11 @@ class CameraWorker:
             ok, frame = self._capture.read()
             if not ok or frame is None:
                 # A video file that reached its end is simply looped.
-                if self.source.source_type == "file":
-                    log.debug("Video file ended, restarting %s", self.source.name)
-                    self._release()
-                    continue
-                self._set_status(CameraStatus.RECONNECTING.value, "stream disconnected")
+                log.debug("Video file ended, restarting %s", self.source.name)
                 self._release()
-                self._sleep_backoff()
                 continue
 
-            now = time.time()
-            self.bus.publish(self.source.camera_id, frame, now)
-            self._frames += 1
-            self._last_frame_ts = now
-            self._fps_window.append(now)
-            if len(self._fps_window) > 30:
-                self._fps_window.pop(0)
-            if len(self._fps_window) > 1:
-                span = self._fps_window[-1] - self._fps_window[0]
-                self._fps = (len(self._fps_window) - 1) / span if span > 0 else 0.0
-
+            self._publish(frame)
             elapsed = time.monotonic() - started
             if min_interval > elapsed:
                 self._stop.wait(min_interval - elapsed)

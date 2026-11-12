@@ -14,7 +14,7 @@ import { type LiveCount } from '@/api/types';
  * `eventTick` increments on every pushed event so callers can refetch
  * aggregates (today's totals) at a throttled rate instead of per event.
  */
-export function useLiveCounts(pollMs = 15000) {
+export function useLiveCounts(pollMs = 3000) {
   const [live, setLive] = useState<Record<number, LiveCount>>({});
   const [eventTick, setEventTick] = useState(0);
   const [connected, setConnected] = useState(false);
@@ -59,6 +59,16 @@ export function useLiveCounts(pollMs = 15000) {
     };
 
     const connect = () => {
+      // The token may have been installed/refreshed since mount; read it per
+      // attempt so the websocket never connects anonymously (the server would
+      // close it with 4401 and we would retry forever without updating).
+      if (!api.isAuthenticated()) {
+        // Not logged in yet: retry shortly instead of opening a doomed socket.
+        window.setTimeout(() => {
+          if (!closedByUs.current) connect();
+        }, 1000);
+        return;
+      }
       let socket: WebSocket;
       try {
         socket = api.createWebSocket('/ws/counts');
@@ -138,13 +148,14 @@ export function useLiveCounts(pollMs = 15000) {
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (evt) => {
         setConnected(false);
         socketRef.current = null;
         if (closedByUs.current) return;
-        // Backoff 1s, 2s, 4s ... capped at 15s.
+        // 4401 = unauthenticated: the access token was missing or rejected.
+        // Reconnect quickly in that case too; the token may arrive shortly.
         retryRef.current = Math.min(retryRef.current + 1, 4);
-        const delay = Math.min(1000 * 2 ** (retryRef.current - 1), 15000);
+        const delay = evt?.code === 4401 ? 1000 : Math.min(1000 * 2 ** (retryRef.current - 1), 15000);
         window.setTimeout(() => {
           if (!closedByUs.current) connect();
         }, delay);
