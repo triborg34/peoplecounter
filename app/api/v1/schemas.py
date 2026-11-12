@@ -197,6 +197,19 @@ class LineUpdate(BaseModel):
     color: Optional[str] = None
     enabled: Optional[bool] = None
 
+    @field_validator("direction")
+    @classmethod
+    def _direction(cls, value: Optional[str]) -> Optional[str]:
+        # Keep PATCH as strict as POST: an unvalidated value here would be
+        # stored verbatim, and a casing slip then makes both directions
+        # silently behave as BOTH in the engine and draw the same arrow.
+        if value is None:
+            return None
+        normalised = (value or "").strip().upper()
+        if normalised not in ("A_TO_B", "B_TO_A", "BOTH"):
+            raise ValueError("direction must be A_TO_B, B_TO_A or BOTH")
+        return normalised
+
 
 class AreaOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)

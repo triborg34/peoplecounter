@@ -10,12 +10,15 @@ line vector.
 """
 from __future__ import annotations
 
+import logging
 import math
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
 from .types import AreaSpec, CountEvent, LineSpec, TrackedPoint
+
+log = logging.getLogger(__name__)
 
 Point = Tuple[float, float]
 
@@ -323,11 +326,15 @@ class CountingEngine:
     @staticmethod
     def _line_direction(configured: str, movement: str) -> Optional[str]:
         """Map a geometric crossing onto the configured line direction."""
-        configured = (configured or "BOTH").upper()
+        configured = (configured or "BOTH").strip().upper()
         if configured == "A_TO_B":
             return "IN" if movement == CROSS_A_TO_B else None
         if configured == "B_TO_A":
             return "IN" if movement == CROSS_B_TO_A else None
+        if configured != "BOTH":
+            # Unknown value: treat as both directions rather than silently
+            # behaving like a one-way line the user never chose.
+            log.warning("Unknown line direction %r, treating as BOTH", configured)
         # BOTH: A->B counts as IN, B->A counts as OUT
         return "IN" if movement == CROSS_A_TO_B else "OUT"
 

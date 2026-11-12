@@ -379,6 +379,9 @@ function DirectionalArrow({
   const vy = y2 - y1;
   const norm = Math.hypot(vx, vy);
   if (norm < 1e-6) return null;
+  // Normalise defensively: a lower-case or padded value from the API must not
+  // fall through to the A_TO_B branch and draw the wrong arrow.
+  const dir = String(direction || 'BOTH').trim().toUpperCase();
   // Unit normal to the line; crossing from -normal to +normal is A_TO_B (IN).
   const nx = -vy / norm;
   const ny = vx / norm;
@@ -413,14 +416,14 @@ function DirectionalArrow({
     );
   };
 
-  // BOTH counts crossings in either direction, so show an arrow each way;
-  // a single arrow would suggest only one side is counted.
-  const signs: Array<1 | -1> = direction === 'BOTH' ? [1, -1] : [direction === 'B_TO_A' ? -1 : 1];
+  // A_TO_B and B_TO_A are mirror images: one arrow each, always opposite.
+  // BOTH counts crossings either way, so it shows both.
+  const signs: Array<1 | -1> = dir === 'BOTH' ? [1, -1] : [dir === 'B_TO_A' ? -1 : 1];
 
   return (
     <g pointerEvents="none">
       {signs.map((s) => arrow(s))}
-      {direction === 'BOTH' && (
+      {dir === 'BOTH' && (
         <text
           x={mx}
           y={my}
