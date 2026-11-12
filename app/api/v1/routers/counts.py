@@ -101,7 +101,11 @@ def count_stats(
         if key not in timeline:
             timeline[key] = {"in": 0, "out": 0}
         
-        if event.direction == "in":
+        # The engine stores direction as "IN"/"OUT"; compare case-insensitively
+        # so either casing aggregates correctly.
+        is_in = (event.direction or "").strip().upper() == "IN"
+        
+        if is_in:
             total_in += 1
             timeline[key]["in"] += 1
         else:
@@ -111,17 +115,18 @@ def count_stats(
         cam_name = camera_names.get(event.camera_id, f"camera_{event.camera_id}")
         if cam_name not in by_camera:
             by_camera[cam_name] = {"in": 0, "out": 0, "net": 0}
-        if event.direction == "in":
+        if is_in:
             by_camera[cam_name]["in"] += 1
         else:
             by_camera[cam_name]["out"] += 1
         by_camera[cam_name]["net"] = by_camera[cam_name]["in"] - by_camera[cam_name]["out"]
         
-        if event.zone_id is not None:
-            zone_name = zone_names.get(event.zone_id, f"zone_{event.zone_id}")
+        # CountEvent has no zone_id column: zone/line identity is target_id.
+        if event.target_id is not None:
+            zone_name = zone_names.get(event.target_id, f"zone_{event.target_id}")
             if zone_name not in by_zone:
                 by_zone[zone_name] = {"in": 0, "out": 0, "net": 0}
-            if event.direction == "in":
+            if is_in:
                 by_zone[zone_name]["in"] += 1
             else:
                 by_zone[zone_name]["out"] += 1
