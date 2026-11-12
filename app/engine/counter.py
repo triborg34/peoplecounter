@@ -98,6 +98,10 @@ class _TrackState:
     last_ts: float = 0.0
     # line_id -> (timestamp, point) of the last accepted crossing
     line_crossings: Dict[int, Tuple[float, Point]] = field(default_factory=dict)
+    # line_id -> last known side of the line (-1 / +1), kept across samples that
+    # land exactly on the line so a crossing is not lost when a track is snapped
+    # onto it.
+    line_side: Dict[int, int] = field(default_factory=dict)
     # area_id -> inside?
     area_state: Dict[int, bool] = field(default_factory=dict)
     # area_id -> (timestamp, point) of the last accepted area transition
@@ -252,6 +256,21 @@ class CountingEngine:
                             continue
                         movement = cross_classify(prev, current, (line.x1, line.y1), (line.x2, line.y2))
                         if movement is None:
+                            # A sample sitting exactly on the line has no side, so
+                            # this step cannot be classified. Keep the last known
+                            # side instead of dropping it, and when the track
+                            # later resolves to the opposite side, count that as
+                            # the crossing the on-line sample hid.
+                            cur_side = signed_side(current, (line.x1, line.y1), (line.x2, line.y2))
+                            if cur_side == 0:
+                                continue
+                            remembered = state.line_side.get(line.id)
+                            if remembered is None or remembered == cur_side:
+                                state.line_side[line.id] = cur_side
+                                continue
+                            movement = CROSS_A_TO_B if remembered < 0 else CROSS_B_TO_A
+                            state.line_side[line.id] = cur_side
+                        if movement is None:
                             continue
                         direction = self._line_direction(line.direction, movement)
                         if direction is None:
@@ -317,6 +336,12 @@ class CountingEngine:
 
             state.last_point = current
             state.last_ts = now
+            # Remember which side of each line this track is on, so a sample
+            # landing exactly on the line does not erase a crossing.
+            for line in self.lines or ():
+                cur_side = signed_side(current, (line.x1, line.y1), (line.x2, line.y2))
+                if cur_side != 0:
+                    state.line_side[line.id] = cur_side
 
         self._update_occupancy(camera_id, camera_tracks)
         self._expire_tracks(camera_tracks, seen_ids, now)
@@ -383,35 +408,34 @@ class CountingEngine:
 def cross_classify(prev: Point, current: Point, a: Point, b: Point) -> Optional[str]:
     """Classify the movement of a track relative to the line A->B.
 
-    A crossing is only meaningful when the track actually passes from one side
-    of the line to the other, so the decision is made from the signed distance
-    of each point to the line (the cross product). Its sign tells which side the
-    point is on; a sign change means the track crossed, and the direction of
-    that change says A->B or B->A.
+    The decision is the sign of the signed distance from each point to the line
+    (the cross product): negative on one side, positive on the other. A sign
+    change means the track passed through the line, and the direction of the
+    change gives A_TO_B or B_TO_A.
 
     Walking *along* the line does not change side, so it is not a crossing and
-    returns None. That matters in practice: a person strafing past a doorway
-    used to be counted as IN because the old parallel-movement rule fired.
+    returns None - a person strafing past a doorway must not be counted.
     """
+    side_prev = signed_side(prev, a, b)
+    side_curr = signed_side(current, a, b)
+    return classify_sides(side_prev, side_curr)
+
+
+def signed_side(point: Point, a: Point, b: Point) -> int:
+    """Side of the A->B line: -1, 0 (on it) or +1."""
     vx = b[0] - a[0]
     vy = b[1] - a[1]
-    if abs(vx) < 1e-12 and abs(vy) < 1e-12:
+    d = vx * (point[1] - a[1]) - vy * (point[0] - a[0])
+    if abs(d) < 1e-9:
+        return 0
+    return -1 if d < 0 else 1
+
+
+def classify_sides(side_prev: int, side_curr: int) -> Optional[str]:
+    """A_TO_B / B_TO_A when the side changed, else None."""
+    if side_prev == 0 or side_curr == 0:
         return None
-
-    # Signed perpendicular distance of each point relative to the A->B vector.
-    # Both are proportional to the true distance, so only the sign matters.
-    d_prev = vx * (prev[1] - a[1]) - vy * (prev[0] - a[0])
-    d_curr = vx * (current[1] - a[1]) - vy * (current[0] - a[0])
-
-    # Sitting exactly on the line carries no side information.
-    eps = 1e-9
-    if abs(d_prev) < eps or abs(d_curr) < eps:
+    if side_prev == side_curr:
         return None
-
-    # No side change -> the track moved along the line, not across it.
-    if (d_prev > 0) == (d_curr > 0):
-        return None
-
-    # Moving from the negative side to the positive side is A -> B.
-    return CROSS_A_TO_B if d_prev < 0 else CROSS_B_TO_A
+    return CROSS_A_TO_B if side_prev < 0 else CROSS_B_TO_A
     return None
