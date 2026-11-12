@@ -383,35 +383,35 @@ class CountingEngine:
 def cross_classify(prev: Point, current: Point, a: Point, b: Point) -> Optional[str]:
     """Classify the movement of a track relative to the line A->B.
 
-    The movement vector is compared with the line vector:
+    A crossing is only meaningful when the track actually passes from one side
+    of the line to the other, so the decision is made from the signed distance
+    of each point to the line (the cross product). Its sign tells which side the
+    point is on; a sign change means the track crossed, and the direction of
+    that change says A->B or B->A.
 
-    * mostly parallel  -> the sign of the dot product decides (walking A to B
-      or walking back B to A),
-    * mostly perpendicular -> the sign of the cross product decides, which is
-      exactly the half plane the track moves into: crossing from the
-      "negative" side (right of A->B) to the "positive" side (left of A->B)
-      is a crossing from A to B.
-
-    Both rules together classify every crossing unambiguously.
+    Walking *along* the line does not change side, so it is not a crossing and
+    returns None. That matters in practice: a person strafing past a doorway
+    used to be counted as IN because the old parallel-movement rule fired.
     """
     vx = b[0] - a[0]
     vy = b[1] - a[1]
-    mx = current[0] - prev[0]
-    my = current[1] - prev[1]
     if abs(vx) < 1e-12 and abs(vy) < 1e-12:
         return None
-    if abs(mx) < 1e-12 and abs(my) < 1e-12:
+
+    # Signed perpendicular distance of each point relative to the A->B vector.
+    # Both are proportional to the true distance, so only the sign matters.
+    d_prev = vx * (prev[1] - a[1]) - vy * (prev[0] - a[0])
+    d_curr = vx * (current[1] - a[1]) - vy * (current[0] - a[0])
+
+    # Sitting exactly on the line carries no side information.
+    eps = 1e-9
+    if abs(d_prev) < eps or abs(d_curr) < eps:
         return None
-    dot = mx * vx + my * vy
-    cross = vx * my - vy * mx
-    if abs(dot) >= abs(cross):
-        if dot > 0:
-            return CROSS_A_TO_B
-        if dot < 0:
-            return CROSS_B_TO_A
+
+    # No side change -> the track moved along the line, not across it.
+    if (d_prev > 0) == (d_curr > 0):
         return None
-    if cross > 0:
-        return CROSS_A_TO_B
-    if cross < 0:
-        return CROSS_B_TO_A
+
+    # Moving from the negative side to the positive side is A -> B.
+    return CROSS_A_TO_B if d_prev < 0 else CROSS_B_TO_A
     return None
