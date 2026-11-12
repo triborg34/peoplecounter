@@ -109,7 +109,10 @@ class CounterLine(Base):
     y1: Mapped[float] = mapped_column(Float, default=0.0)
     x2: Mapped[float] = mapped_column(Float, default=0.0)
     y2: Mapped[float] = mapped_column(Float, default=0.0)
-    direction: Mapped[str] = mapped_column(String(16), default="BOTH", nullable=False)  # A_TO_B | B_TO_A | BOTH
+    direction: Mapped[str] = mapped_column(String(16), default="BOTH", nullable=False)
+    # Two slots, "<A->B><B->A>", each I (IN) / O (OUT) / X (ignored), for example
+    # "IO" = A->B is IN and B->A is OUT. Legacy A_TO_B / B_TO_A / BOTH rows are
+    # still interpreted by CountingEngine._line_direction.
     enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utcnow, nullable=False)
     updated_at: Mapped[dt.datetime] = mapped_column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)

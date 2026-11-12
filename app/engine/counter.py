@@ -350,17 +350,59 @@ class CountingEngine:
     # -- helpers --------------------------------------------------------
     @staticmethod
     def _line_direction(configured: str, movement: str) -> Optional[str]:
-        """Map a geometric crossing onto the configured line direction."""
+        """Map a geometric crossing onto IN / OUT / ignored.
+
+        ``movement`` is A_TO_B or B_TO_A (how the track actually travelled).
+        ``configured`` is the user's choice, of the form ``<direction>_<IN|OUT>``
+        or ``IGNORE``. Each geometric direction independently counts as IN, as
+        OUT, or not at all:
+
+        * ``A_TO_B_IN``  / ``A_TO_B_OUT``  / ``A_TO_B_IGNORE``
+        * ``B_TO_A_IN``  / ``B_TO_A_OUT``  / ``B_TO_A_IGNORE``
+
+        A combined form ``BOTH_IN`` / ``BOTH_OUT`` counts both directions and
+        only decides which of the two is IN. The legacy values keep their
+        original meaning so existing rows do not change behaviour:
+        ``A_TO_B`` (A->B is IN, B->A ignored), ``B_TO_A``, and ``BOTH``
+        (A->B is IN, B->A is OUT).
+        """
         configured = (configured or "BOTH").strip().upper()
+
+        # Explicit two-slot form: "<A->B><B->A>" with I=IN, O=OUT, X=ignore.
+        # This is the form the zone editor writes, and it is the only one that
+        # can express every combination independently.
+        slots = {"I": "IN", "O": "OUT", "X": None}
+        if len(configured) == 2 and all(ch in slots for ch in configured):
+            meaning = slots[configured[0] if movement == CROSS_A_TO_B else configured[1]]
+            return meaning
+
+        # Legacy values.
         if configured == "A_TO_B":
             return "IN" if movement == CROSS_A_TO_B else None
         if configured == "B_TO_A":
             return "IN" if movement == CROSS_B_TO_A else None
-        if configured != "BOTH":
-            # Unknown value: treat as both directions rather than silently
-            # behaving like a one-way line the user never chose.
-            log.warning("Unknown line direction %r, treating as BOTH", configured)
-        # BOTH: A->B counts as IN, B->A counts as OUT
+        if configured == "BOTH":
+            return "IN" if movement == CROSS_A_TO_B else "OUT"
+
+        # Combined two-way forms: which of the two directions is IN.
+        if configured == "BOTH_IN":
+            return "IN" if movement == CROSS_A_TO_B else "OUT"
+        if configured == "BOTH_OUT":
+            return "OUT" if movement == CROSS_A_TO_B else "IN"
+
+        # Per-direction choice: A_TO_B_<X> / B_TO_A_<X> where X is IN/OUT/IGNORE.
+        prefix = "A_TO_B_" if movement == CROSS_A_TO_B else "B_TO_A_"
+        if configured.startswith(prefix):
+            meaning = configured[len(prefix):]
+            if meaning == "IN":
+                return "IN"
+            if meaning == "OUT":
+                return "OUT"
+            if meaning == "IGNORE":
+                return None
+
+        # Unknown value: count both ways rather than silently dropping events.
+        log.warning("Unknown line direction %r, treating as BOTH", configured)
         return "IN" if movement == CROSS_A_TO_B else "OUT"
 
     def _debounce_line(self, state: _TrackState, line_id: int, point: Point, now: float) -> bool:
