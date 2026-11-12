@@ -141,7 +141,20 @@ python -m app.main
 
 # 3) or run the API only, without a GUI
 python -m app.server --host 0.0.0.0 --port 8000
-`@
+`
+
+### Web UI auto-start
+
+When you start the API server (`python -m app.server`), the Persian web UI
+starts and opens in your browser automatically:
+
+* If `web-ui/dist` exists (run `npm run build` inside `web-ui` once), the
+  production build is served by the API itself at `http://<host>:<port>/` -
+  no Node.js needed at run time.
+* Otherwise the Vite dev server (`npm run dev`) is spawned in `web-ui` and the
+  browser opens on `http://localhost:3100`. Dependencies are installed
+  automatically on the first run.
+* Disable with `--no-web` or `PCC_WEB_UI=off` in `.env`.@
 
 On the very first start a default administrator is created:
 

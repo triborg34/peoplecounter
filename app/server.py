@@ -14,6 +14,7 @@ from typing import List, Optional
 
 from .config import Settings, get_settings
 from .logging_setup import setup_logging
+from .webui import launch_webui, stop_dev_webui, web_ui_enabled
 
 log = logging.getLogger(__name__)
 
@@ -23,6 +24,7 @@ def run_server(
     host: Optional[str] = None,
     port: Optional[int] = None,
     runtime=None,
+    open_web: Optional[bool] = None,
 ) -> None:
     import uvicorn
 
@@ -31,15 +33,30 @@ def run_server(
     settings = settings or get_settings()
     setup_logging(settings.log_level, settings.log_dir, settings.log_max_bytes, settings.log_backup_count)
     app = create_app(runtime=runtime, settings=settings)
-    uvicorn.run(
-        app,
-        host=host or settings.api_host,
-        port=int(port or settings.api_port),
-        log_level=settings.log_level.lower(),
-        # Bound the graceful phase: MJPEG / WebSocket clients that never
-        # disconnect would otherwise stall the shutdown forever.
-        timeout_graceful_shutdown=2.0,
-    )
+
+    # Web UI: serve the production build when it exists, otherwise spawn the
+    # Vite dev server - and open the browser once everything is up.
+    if open_web is False:
+        effective = "off"
+    else:
+        effective = settings.web_ui
+    dev_proc = None
+    if web_ui_enabled(effective):
+        bind_host = host or settings.api_host
+        dev_proc = launch_webui(app, settings, bind_host, int(port or settings.api_port))
+
+    try:
+        uvicorn.run(
+            app,
+            host=host or settings.api_host,
+            port=int(port or settings.api_port),
+            log_level=settings.log_level.lower(),
+            # Bound the graceful phase: MJPEG / WebSocket clients that never
+            # disconnect would otherwise stall the shutdown forever.
+            timeout_graceful_shutdown=2.0,
+        )
+    finally:
+        stop_dev_webui(dev_proc)
 
 
 class EmbeddedApiServer:
@@ -141,8 +158,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="People counter API server")
     parser.add_argument("--host", default=None)
     parser.add_argument("--port", default=None, type=int)
+    parser.add_argument(
+        "--no-web",
+        action="store_true",
+        help="do not start the web UI and do not open a browser",
+    )
     args = parser.parse_args()
-    run_server(host=args.host, port=args.port)
+    run_server(host=args.host, port=args.port, open_web=False if args.no_web else None)
 
 
 if __name__ == "__main__":

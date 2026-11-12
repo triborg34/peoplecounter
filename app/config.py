@@ -16,7 +16,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
-print(BASE_DIR)
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
@@ -54,6 +53,9 @@ class Settings(BaseSettings):
     api_enabled: bool = False
     api_host: str = "127.0.0.1"
     api_port: int = 8000
+    # auto: serve web-ui/dist when built, else spawn the Vite dev server
+    # off/0/false: never start or open the web UI
+    web_ui: str = "auto"
     cors_origins: List[str] = Field(default_factory=lambda: ["*"])
     rate_limit_login_per_minute: int = 10
     webhook_urls: List[str] = Field(default_factory=list)
