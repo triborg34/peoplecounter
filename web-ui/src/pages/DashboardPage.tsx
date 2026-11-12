@@ -33,7 +33,7 @@ export function DashboardPage() {
     try {
       setError('');
       const [statsRes, camsRes] = await Promise.all([
-        api.getCountStats({ interval: 'day' }),
+        api.getCountStats({ today: true }),
         api.getCameras({ size: 100 }),
       ]);
       setStats(statsRes);
@@ -49,7 +49,7 @@ export function DashboardPage() {
   // new crossings (throttled inside the hook) so the KPI cards stay current.
   const refreshStats = useCallback(async () => {
     try {
-      setStats(await api.getCountStats({ interval: 'day' }));
+      setStats(await api.getCountStats({ today: true }));
     } catch {
       /* keep the previous numbers rather than blanking the cards */
     }
@@ -58,6 +58,14 @@ export function DashboardPage() {
   useEffect(() => {
     fetchAll();
   }, [fetchAll]);
+
+  // Today's totals must move even when the websocket is blocked or idle, so
+  // refresh on a timer as well as on pushed events. The timer is the reliable
+  // path; eventTick just makes it feel instant when the socket is live.
+  useEffect(() => {
+    const id = window.setInterval(refreshStats, 4000);
+    return () => window.clearInterval(id);
+  }, [refreshStats]);
 
   useEffect(() => {
     if (eventTick > 0) refreshStats();

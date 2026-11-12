@@ -13,6 +13,10 @@ import { type LiveCount } from '@/api/types';
  *
  * `eventTick` increments on every pushed event so callers can refetch
  * aggregates (today's totals) at a throttled rate instead of per event.
+ *
+ * Callers must not rely on `eventTick` alone: it only fires when the socket is
+ * connected and a crossing actually happens. Pair it with a periodic refresh
+ * (see the dashboard) so the totals still advance when the socket is blocked.
  */
 export function useLiveCounts(pollMs = 3000) {
   const [live, setLive] = useState<Record<number, LiveCount>>({});

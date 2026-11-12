@@ -42,28 +42,45 @@ def count_stats(
     interval: str = Query("day", pattern="^(hour|day|week|month)$"),
     camera_id: Optional[int] = None,
     zone_id: Optional[int] = None,
+    today: bool = Query(False),
     session: Session = Depends(get_db),
     _: object = Depends(require_permission(auth_service.PERM_VIEW)),
 ) -> CountStatsOut:
     """Get aggregated count statistics with time series."""
     from datetime import datetime, timedelta, timezone
     
+    # CountEvent.ts is written as naive UTC (see db.models.utcnow), so window
+    # bounds are normalised to naive UTC to keep a single convention between the
+    # stored column and the bound parameter.
+    def _naive_utc(value: datetime) -> datetime:
+        return value.astimezone(timezone.utc).replace(tzinfo=None) if value.tzinfo else value
+
     # Determine time window based on interval
     now = datetime.now(timezone.utc)
-    if interval == "hour":
-        start_time = now - timedelta(hours=1)
+    if today:
+        # "Today" means the calendar day just gone in the user's local time, not
+        # a rolling 24h window: a rolling window pulls in yesterday's evening and
+        # hides the meaning of a label like "today's entries". Local midnight is
+        # converted to UTC before the naive comparison.
+        local_now = datetime.now().astimezone()
+        local_midnight = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_time = _naive_utc(local_midnight)
+        group_format = "%Y-%m-%d %H:00"
+        delta = timedelta(hours=1)
+    elif interval == "hour":
+        start_time = _naive_utc(now - timedelta(hours=1))
         group_format = "%Y-%m-%d %H:%M"
         delta = timedelta(minutes=1)
     elif interval == "day":
-        start_time = now - timedelta(days=1)
+        start_time = _naive_utc(now - timedelta(days=1))
         group_format = "%Y-%m-%d %H:00"
         delta = timedelta(hours=1)
     elif interval == "week":
-        start_time = now - timedelta(weeks=1)
+        start_time = _naive_utc(now - timedelta(weeks=1))
         group_format = "%Y-%m-%d"
         delta = timedelta(days=1)
     else:  # month
-        start_time = now - timedelta(days=30)
+        start_time = _naive_utc(now - timedelta(days=30))
         group_format = "%Y-%m-%d"
         delta = timedelta(days=1)
     

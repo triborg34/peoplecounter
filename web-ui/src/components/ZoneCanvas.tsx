@@ -333,7 +333,14 @@ export function ZoneCanvas({
   );
 }
 
-/** Perpendicular arrow marking the counted walking direction (like the PyQt editor). */
+/** Perpendicular arrow marking the counted walking direction (like the PyQt editor).
+ *
+ * The arrow is drawn offset to one side of the line rather than on top of it, so
+ * A_TO_B and B_TO_A never overlap and each clearly shows which side a person
+ * must move towards. A vertical line therefore gets a left or right arrow and a
+ * horizontal line an up or down one, matching the engine's normal convention:
+ * the sign of the cross product of the line vector and the movement.
+ */
 function DirectionalArrow({
   x1, y1, x2, y2, color, direction,
 }: {
@@ -343,24 +350,36 @@ function DirectionalArrow({
   const vy = y2 - y1;
   const norm = Math.hypot(vx, vy);
   if (norm < 1e-6) return null;
+  // Unit normal to the line; crossing from -normal to +normal is A_TO_B (IN).
   const nx = -vy / norm;
   const ny = vx / norm;
   const mx = (x1 + x2) / 2;
   const my = (y1 + y2) / 2;
-  const half = Math.max(16, Math.min(70, norm * 0.08));
-  const size = Math.max(6, half * 0.35);
 
-  /** One arrow, pointing along +/- the line normal (i.e. the IN walking side). */
+  const len = Math.max(18, Math.min(54, norm * 0.16));
+  const head = Math.max(7, len * 0.32);
+  // Push the arrow clear of the line so the two directions cannot overlap.
+  const offset = 12;
+
+  /** Arrow pointing towards the side a crossing must move into. */
   const arrow = (sign: 1 | -1) => {
-    const sx = mx - nx * half * sign;
-    const sy = my - ny * half * sign;
-    const ex = mx + nx * half * sign;
-    const ey = my + ny * half * sign;
-    const head = `${ex},${ey} ${ex - nx * size * sign - (vx / norm) * size * 0.6},${ey - ny * size * sign - (vy / norm) * size * 0.6} ${ex - nx * size * sign + (vx / norm) * size * 0.6},${ey - ny * size * sign + (vy / norm) * size * 0.6}`;
+    const cx = mx + nx * offset * sign;
+    const cy = my + ny * offset * sign;
+    const sx = cx - nx * (len / 2) * sign;
+    const sy = cy - ny * (len / 2) * sign;
+    const ex = cx + nx * (len / 2) * sign;
+    const ey = cy + ny * (len / 2) * sign;
+    // Arrowhead: two points behind the tip, spread along the line direction.
+    const ux = vx / norm;
+    const uy = vy / norm;
+    const bx = ex - nx * head * sign;
+    const by = ey - ny * head * sign;
+    const p1 = `${bx + ux * head * 0.55},${by + uy * head * 0.55}`;
+    const p2 = `${bx - ux * head * 0.55},${by - uy * head * 0.55}`;
     return (
       <g key={sign}>
-        <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={color} strokeWidth={2} />
-        <polygon points={head} fill={color} />
+        <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={color} strokeWidth={2.5} strokeLinecap="round" />
+        <polygon points={`${ex},${ey} ${p1} ${p2}`} fill={color} />
       </g>
     );
   };
@@ -372,6 +391,19 @@ function DirectionalArrow({
   return (
     <g pointerEvents="none">
       {signs.map((s) => arrow(s))}
+      {direction === 'BOTH' && (
+        <text
+          x={mx}
+          y={my}
+          textAnchor="middle"
+          dominantBaseline="central"
+          fontSize={9}
+          fill={color}
+          style={{ paintOrder: 'stroke', stroke: '#000', strokeWidth: 2.5, strokeOpacity: 0.55 }}
+        >
+          هر دو
+        </text>
+      )}
     </g>
   );
 }

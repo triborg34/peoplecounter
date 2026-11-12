@@ -288,6 +288,8 @@ class ApiClient {
     end?: string;
     interval?: string;
     camera_id?: number;
+    /** Window on the server's local calendar day instead of a rolling 24h. */
+    today?: boolean;
   }): Promise<CountStats> {
     const response = await this.client.get('/counts/stats', { params });
     return response.data;
