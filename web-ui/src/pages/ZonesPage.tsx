@@ -70,6 +70,12 @@ export function ZonesPage() {
       setEditingName(item.name);
       setEditingEnabled(item.enabled);
     }
+    // Reflect the selected line's own direction in the toolbar, so the control
+    // always shows what is stored instead of the last value picked.
+    if (selected.kind === 'line') {
+      const line = lines.find((l) => l.id === selected.id);
+      if (line?.direction) setDirection(line.direction);
+    }
   }, [selected, lines, areas]);
 
   function changeCamera(id: number) {
@@ -119,12 +125,28 @@ export function ZonesPage() {
     await api.updateArea(cameraId, id, { points });
   }
 
+  /** Changing the direction dropdown on a selected line persists immediately. */
+  async function changeDirection(next: 'A_TO_B' | 'B_TO_A' | 'BOTH') {
+    setDirection(next);
+    if (selected?.kind === 'line' && cameraId) {
+      setLines((prev) => prev.map((l) => (l.id === selected.id ? { ...l, direction: next } : l)));
+      try {
+        await api.updateLine(cameraId, selected.id, { direction: next });
+      } catch {
+        await fetchZones(); // roll back to server truth
+      }
+    }
+  }
+
   async function saveSelected() {
     if (!selected || !cameraId) return;
     setBusy(true);
     try {
-      if (selected.kind === 'line') await api.updateLine(cameraId, selected.id, { name: editingName.trim(), enabled: editingEnabled });
-      else await api.updateArea(cameraId, selected.id, { name: editingName.trim(), enabled: editingEnabled });
+      if (selected.kind === 'line') {
+        await api.updateLine(cameraId, selected.id, { name: editingName.trim(), enabled: editingEnabled, direction });
+      } else {
+        await api.updateArea(cameraId, selected.id, { name: editingName.trim(), enabled: editingEnabled });
+      }
       await fetchZones();
     } finally {
       setBusy(false);
@@ -194,7 +216,7 @@ export function ZonesPage() {
                 <select
                   aria-label="جهت شمارش خط"
                   value={direction}
-                  onChange={(e) => setDirection(e.target.value as typeof direction)}
+                  onChange={(e) => changeDirection(e.target.value as typeof direction)}
                   className="h-9 rounded-field border-line-field border-input bg-field px-2 text-sm shadow-field focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   <option value="BOTH">هر دو جهت</option>

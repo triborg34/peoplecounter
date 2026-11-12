@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { ArrowDownLeft, ArrowUpLeft, Pause, Play, Plus, ScanLine, Video } from 'lucide-react';
 import api from '@/api/client';
 import { type Camera, type LiveCount } from '@/api/types';
+import { useLiveCounts } from '@/lib/useLiveCounts';
 import { fa, faNumber, faRelativeTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,9 +23,11 @@ export function DashboardPage() {
   const navigate = useNavigate();
   const [stats, setStats] = useState<TodayStats | null>(null);
   const [cameras, setCameras] = useState<Camera[]>([]);
-  const [live, setLive] = useState<Record<number, LiveCount>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+
+  // Live pushes from /ws/counts: counts update without a page refresh.
+  const { live, eventTick, connected } = useLiveCounts();
 
   const fetchAll = useCallback(async () => {
     try {
@@ -42,21 +45,23 @@ export function DashboardPage() {
     }
   }, []);
 
-  const fetchLive = useCallback(async () => {
+  // Today's totals: fetched once, then refreshed whenever the socket reports
+  // new crossings (throttled inside the hook) so the KPI cards stay current.
+  const refreshStats = useCallback(async () => {
     try {
-      const data = await api.getLiveCounts();
-      setLive(Object.fromEntries(data.map((c) => [c.camera_id, c])));
+      setStats(await api.getCountStats({ interval: 'day' }));
     } catch {
-      /* پیش‌بینی: نمایش بی‌صدا؛ دوره‌ی بعد دوباره تلاش می‌شود */
+      /* keep the previous numbers rather than blanking the cards */
     }
   }, []);
 
   useEffect(() => {
     fetchAll();
-    fetchLive();
-    const t = setInterval(fetchLive, 5000);
-    return () => clearInterval(t);
-  }, [fetchAll, fetchLive]);
+  }, [fetchAll]);
+
+  useEffect(() => {
+    if (eventTick > 0) refreshStats();
+  }, [eventTick, refreshStats]);
 
   async function toggleCamera(cam: Camera) {
     try {
@@ -82,7 +87,16 @@ export function DashboardPage() {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-lg font-bold">داشبورد</h1>
-          <p className="text-sm text-muted-foreground">نمای کلی سامانه و شمارش زنده</p>
+          <p className="text-sm text-muted-foreground">
+            نمای کلی سامانه و شمارش زنده
+            <span className="ms-2 inline-flex items-center gap-1 text-[11px]">
+              <span
+                className={`size-1.5 rounded-full ${connected ? 'animate-pulse bg-success' : 'bg-muted-foreground/50'}`}
+                aria-hidden
+              />
+              {connected ? 'به‌روزرسانی زنده' : 'حالت دوره‌ای'}
+            </span>
+          </p>
         </div>
         <Button onClick={() => navigate('/cameras')} size="sm" variant="outline">
           <Plus className="size-4" />

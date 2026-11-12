@@ -349,16 +349,29 @@ function DirectionalArrow({
   const my = (y1 + y2) / 2;
   const half = Math.max(16, Math.min(70, norm * 0.08));
   const size = Math.max(6, half * 0.35);
-  const sign = direction === 'B_TO_A' ? -1 : 1;
-  const sx = mx - nx * half * sign;
-  const sy = my - ny * half * sign;
-  const ex = mx + nx * half * sign;
-  const ey = my + ny * half * sign;
-  const head = `${ex},${ey} ${ex - nx * size * sign - (vx / norm) * size * 0.6},${ey - ny * size * sign - (vy / norm) * size * 0.6} ${ex - nx * size * sign + (vx / norm) * size * 0.6},${ey - ny * size * sign + (vy / norm) * size * 0.6}`;
+
+  /** One arrow, pointing along +/- the line normal (i.e. the IN walking side). */
+  const arrow = (sign: 1 | -1) => {
+    const sx = mx - nx * half * sign;
+    const sy = my - ny * half * sign;
+    const ex = mx + nx * half * sign;
+    const ey = my + ny * half * sign;
+    const head = `${ex},${ey} ${ex - nx * size * sign - (vx / norm) * size * 0.6},${ey - ny * size * sign - (vy / norm) * size * 0.6} ${ex - nx * size * sign + (vx / norm) * size * 0.6},${ey - ny * size * sign + (vy / norm) * size * 0.6}`;
+    return (
+      <g key={sign}>
+        <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={color} strokeWidth={2} />
+        <polygon points={head} fill={color} />
+      </g>
+    );
+  };
+
+  // BOTH counts crossings in either direction, so show an arrow each way;
+  // a single arrow would suggest only one side is counted.
+  const signs: Array<1 | -1> = direction === 'BOTH' ? [1, -1] : [direction === 'B_TO_A' ? -1 : 1];
+
   return (
     <g pointerEvents="none">
-      <line x1={sx} y1={sy} x2={ex} y2={ey} stroke={color} strokeWidth={2} />
-      <polygon points={head} fill={color} />
+      {signs.map((s) => arrow(s))}
     </g>
   );
 }
