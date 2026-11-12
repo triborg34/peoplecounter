@@ -220,8 +220,8 @@ export function ZonesPage() {
                   className="h-9 rounded-field border-line-field border-input bg-field px-2 text-sm shadow-field focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
                 >
                   <option value="BOTH">هر دو جهت</option>
-                  <option value="A_TO_B">A به B</option>
-                  <option value="B_TO_A">B به A</option>
+                  <option value="A_TO_B">A ← به → B (ورود از سمت A)</option>
+                  <option value="B_TO_A">B ← به → A (ورود از سمت B)</option>
                 </select>
               )}
             </div>

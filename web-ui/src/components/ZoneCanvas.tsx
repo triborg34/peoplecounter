@@ -224,10 +224,24 @@ export function ZoneCanvas({
                 <DirectionalArrow x1={x1} y1={y1} x2={x2} y2={y2} color={l.color} direction={l.direction} />
                 {isSel && (
                   <>
+                    {/* Endpoint labels: A is the first point drawn, B the second.
+                        A_TO_B counts crossings moving from the A side to the B
+                        side, so showing which dot is which makes the direction
+                        readable instead of guessable. */}
                     <circle cx={x1} cy={y1} r={7} fill="#f59e0b" stroke="#fff" strokeWidth={2} className="cursor-grab"
                       onPointerDown={(e) => { e.stopPropagation(); setDragging({ kind: 'line', id: l.id, index: 0 }); }} />
-                    <circle cx={x2} cy={y2} r={7} fill="#f59e0b" stroke="#fff" strokeWidth={2} className="cursor-grab"
+                    <circle cx={x2} cy={y2} r={7} fill="#38bdf8" stroke="#fff" strokeWidth={2} className="cursor-grab"
                       onPointerDown={(e) => { e.stopPropagation(); setDragging({ kind: 'line', id: l.id, index: 1 }); }} />
+                    <text
+                      x={x1} y={y1} textAnchor="middle" dominantBaseline="central"
+                      fontSize={10} fontWeight={700} fill="#1f2937"
+                      pointerEvents="none"
+                    >A</text>
+                    <text
+                      x={x2} y={y2} textAnchor="middle" dominantBaseline="central"
+                      fontSize={10} fontWeight={700} fill="#082f49"
+                      pointerEvents="none"
+                    >B</text>
                   </>
                 )}
               </g>
@@ -276,14 +290,29 @@ export function ZoneCanvas({
 
           {/* live draft for a line in progress */}
           {mode === 'line' && draft.length === 1 && cursor && (
-            <line
-              x1={px(draft[0].x, 'x')} y1={px(draft[0].y, 'y')}
-              x2={px(cursor.x, 'x')} y2={px(cursor.y, 'y')}
-              stroke="#eab308" strokeWidth={2} strokeDasharray="6 4"
-            />
+            <>
+              <line
+                x1={px(draft[0].x, 'x')} y1={px(draft[0].y, 'y')}
+                x2={px(cursor.x, 'x')} y2={px(cursor.y, 'y')}
+                stroke="#eab308" strokeWidth={2} strokeDasharray="6 4"
+              />
+              <circle cx={px(cursor.x, 'x')} cy={px(cursor.y, 'y')} r={7} fill="#38bdf8" stroke="#fff" strokeWidth={2} opacity={0.85} />
+              <text
+                x={px(cursor.x, 'x')} y={px(cursor.y, 'y')}
+                textAnchor="middle" dominantBaseline="central"
+                fontSize={10} fontWeight={700} fill="#082f49" pointerEvents="none" opacity={0.9}
+              >B</text>
+            </>
           )}
           {mode === 'line' && draft.length === 1 && (
-            <circle cx={px(draft[0].x, 'x')} cy={px(draft[0].y, 'y')} r={5} fill="#eab308" stroke="#fff" strokeWidth={1} />
+            <>
+              <circle cx={px(draft[0].x, 'x')} cy={px(draft[0].y, 'y')} r={7} fill="#f59e0b" stroke="#fff" strokeWidth={2} />
+              <text
+                x={px(draft[0].x, 'x')} y={px(draft[0].y, 'y')}
+                textAnchor="middle" dominantBaseline="central"
+                fontSize={10} fontWeight={700} fill="#1f2937" pointerEvents="none"
+              >A</text>
+            </>
           )}
 
           {/* live draft for an area in progress */}
