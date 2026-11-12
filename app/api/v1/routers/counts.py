@@ -177,7 +177,7 @@ def live_counts(
         if last_event:
             last_event_out = CountEventOut(
                 id=last_event.id,
-                timestamp=last_event.timestamp,
+                timestamp=last_event.ts,
                 camera_id=last_event.camera_id,
                 camera_name=camera_name,
                 kind=last_event.kind,
