@@ -1,10 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { ArrowDownLeft, ArrowUpLeft, Pause, Play, Plus, ScanLine, Video } from 'lucide-react';
+import {
+  Activity,
+  ArrowDownLeft,
+  ArrowUpLeft,
+  Cpu,
+  HardDrive,
+  Maximize2,
+  Minimize2,
+  Pause,
+  Play,
+  Plus,
+  ScanLine,
+  Video,
+} from 'lucide-react';
 import api from '@/api/client';
 import { type Camera, type LiveCount } from '@/api/types';
 import { useLiveCounts } from '@/lib/useLiveCounts';
-import { fa, faNumber, faRelativeTime } from '@/lib/utils';
+import { cn, fa, faNumber, faRelativeTime } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { EmptyState } from '@/components/ui/empty-state';
@@ -19,12 +32,20 @@ interface TodayStats {
   timeline: Array<Record<string, unknown>>;
 }
 
+interface HardwareStats {
+  cpu: { percent: number };
+  ram: { percent: number; used_gb: number; total_gb: number };
+  disk: { percent: number; used_gb: number; total_gb: number };
+}
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const [stats, setStats] = useState<TodayStats | null>(null);
   const [cameras, setCameras] = useState<Camera[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [enlargedCameraId, setEnlargedCameraId] = useState<number | null>(null);
+  const [hardware, setHardware] = useState<HardwareStats | null>(null);
 
   // Live pushes from /ws/counts: counts update without a page refresh.
   const { live, eventTick, connected } = useLiveCounts();
@@ -59,9 +80,7 @@ export function DashboardPage() {
     fetchAll();
   }, [fetchAll]);
 
-  // Today's totals must move even when the websocket is blocked or idle, so
-  // refresh on a timer as well as on pushed events. The timer is the reliable
-  // path; eventTick just makes it feel instant when the socket is live.
+  // Today's totals timer
   useEffect(() => {
     const id = window.setInterval(refreshStats, 4000);
     return () => window.clearInterval(id);
@@ -70,6 +89,25 @@ export function DashboardPage() {
   useEffect(() => {
     if (eventTick > 0) refreshStats();
   }, [eventTick, refreshStats]);
+
+  // Periodically fetch hardware metrics (CPU, RAM, Disk)
+  useEffect(() => {
+    let mounted = true;
+    const fetchHw = async () => {
+      try {
+        const data = await api.getSystemHardware();
+        if (mounted) setHardware(data);
+      } catch {
+        /* ignore */
+      }
+    };
+    fetchHw();
+    const id = window.setInterval(fetchHw, 4000);
+    return () => {
+      mounted = false;
+      window.clearInterval(id);
+    };
+  }, []);
 
   async function toggleCamera(cam: Camera) {
     try {
@@ -150,9 +188,26 @@ export function DashboardPage() {
             />
           ) : (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              {cameras.map((cam) => (
-                <CameraTile key={cam.id} camera={cam} live={live[cam.id]} onToggle={() => toggleCamera(cam)} />
-              ))}
+              {cameras.map((cam) => {
+                const isEnlarged = enlargedCameraId === cam.id;
+                return (
+                  <div
+                    key={cam.id}
+                    className={cn(
+                      'transition-all duration-300',
+                      isEnlarged && 'sm:col-span-2 xl:col-span-2 sm:row-span-2 scale-[1.01] z-10 ring-2 ring-brand/50 rounded-surface'
+                    )}
+                  >
+                    <CameraTile
+                      camera={cam}
+                      live={live[cam.id]}
+                      isEnlarged={isEnlarged}
+                      onToggle={() => toggleCamera(cam)}
+                      onToggleEnlarge={() => setEnlargedCameraId(isEnlarged ? null : cam.id)}
+                    />
+                  </div>
+                );
+              })}
             </div>
           )}
         </CardContent>
@@ -164,21 +219,72 @@ export function DashboardPage() {
         <QuickLink to="/reports" icon={ArrowUpLeft} title="گزارش‌ها و خروجی" desc="نمودار، جدول و خروجی CSV/Excel/PDF" />
         <QuickLink to="/settings" icon={ArrowDownLeft} title="تنظیمات سامانه" desc="کاربران، سرویس API و پیکربندی موتور" />
       </div>
+
+      {/* پایش سخت‌افزار سرور (۳ نمودار مینیمال CPU / RAM / Disk) */}
+      <Card>
+        <CardHeader className="py-3.5">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Activity className="size-4 text-brand" />
+            <span>پایش سخت‌افزار سامانه</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+            <HardwareGauge
+              percent={hardware?.cpu.percent ?? 0}
+              label="پردازنده (CPU)"
+              sublabel={`${faNumber(Math.round(hardware?.cpu.percent ?? 0))}٪ بار پردازشی لحظه‌ای`}
+              icon={Cpu}
+            />
+            <HardwareGauge
+              percent={hardware?.ram.percent ?? 0}
+              label="حافظه رم (RAM)"
+              sublabel={`${fa(hardware?.ram.used_gb ?? '۰٫۰')} از ${fa(hardware?.ram.total_gb ?? '۰٫۰')} گیگابایت`}
+              icon={Activity}
+            />
+            <HardwareGauge
+              percent={hardware?.disk.percent ?? 0}
+              label="فضای دیسک (Disk)"
+              sublabel={`${fa(hardware?.disk.used_gb ?? '۰')} از ${fa(hardware?.disk.total_gb ?? '۰')} گیگابایت`}
+              icon={HardDrive}
+            />
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
 
-function CameraTile({ camera, live, onToggle }: { camera: Camera; live?: LiveCount; onToggle: () => void }) {
+function CameraTile({
+  camera,
+  live,
+  isEnlarged,
+  onToggle,
+  onToggleEnlarge,
+}: {
+  camera: Camera;
+  live?: LiveCount;
+  isEnlarged?: boolean;
+  onToggle: () => void;
+  onToggleEnlarge: () => void;
+}) {
   const isOnline = camera.status === 'online';
   const [hover, setHover] = useState(false);
 
   return (
     <div
-      className="group overflow-hidden rounded-surface border-line border-border bg-card"
+      className={cn(
+        'group overflow-hidden rounded-surface border-line border-border bg-card transition-shadow',
+        isEnlarged && 'shadow-lg'
+      )}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <div className="relative aspect-video bg-black">
+      <div
+        className="relative aspect-video bg-black cursor-pointer select-none"
+        onClick={onToggleEnlarge}
+        title={isEnlarged ? 'برای کوچک‌نمایی کلیک کنید' : 'برای بزرگ‌نمایی کلیک کنید'}
+      >
         {isOnline ? (
           <img
             src={api.getCameraStreamUrl(camera.id)}
@@ -201,12 +307,63 @@ function CameraTile({ camera, live, onToggle }: { camera: Camera; live?: LiveCou
               تشخیص فعال
             </span>
           )}
+          {isEnlarged && (
+            <span className="rounded-full bg-brand px-2 py-0.5 text-[10px] font-medium text-white shadow-sm">
+              بزرگ‌نمایی
+            </span>
+          )}
+        </div>
+
+        {/* دکمه بزرگ‌نمایی / کوچک‌نمایی در گوشه */}
+        <div className="absolute top-2 end-2">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleEnlarge();
+            }}
+            className="flex size-7 items-center justify-center rounded-full bg-black/60 text-white/90 backdrop-blur-sm transition-colors hover:bg-black/90 hover:text-white"
+            title={isEnlarged ? 'کوچک کردن' : 'بزرگ کردن تصویر'}
+          >
+            {isEnlarged ? <Minimize2 className="size-3.5" /> : <Maximize2 className="size-3.5" />}
+          </button>
         </div>
 
         {hover && (
-          <div className="absolute inset-0 flex items-center justify-center gap-2 bg-black/50">
-            <Button size="sm" variant="secondary" onClick={onToggle}>
+          <div
+            className="absolute inset-0 flex items-center justify-center gap-2 bg-black/40 transition-opacity"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggle();
+              }}
+            >
               {camera.enabled ? <Pause className="size-4" /> : <Play className="size-4" />}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="bg-card/90 text-xs backdrop-blur-sm"
+              onClick={(e) => {
+                e.stopPropagation();
+                onToggleEnlarge();
+              }}
+            >
+              {isEnlarged ? (
+                <>
+                  <Minimize2 className="size-3.5 ml-1" />
+                  کوچک‌نمایی
+                </>
+              ) : (
+                <>
+                  <Maximize2 className="size-3.5 ml-1" />
+                  بزرگ‌نمایی
+                </>
+              )}
             </Button>
           </div>
         )}
@@ -236,6 +393,67 @@ function CameraTile({ camera, live, onToggle }: { camera: Camera; live?: LiveCou
           )}
         </div>
         {camera.location && <p className="truncate text-[11px] text-muted-foreground/70">{camera.location}</p>}
+      </div>
+    </div>
+  );
+}
+
+function HardwareGauge({
+  percent,
+  label,
+  sublabel,
+  icon: Icon,
+}: {
+  percent: number;
+  label: string;
+  sublabel: string;
+  icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
+}) {
+  const p = Math.min(100, Math.max(0, percent));
+  const r = 26;
+  const c = 2 * Math.PI * r;
+  const offset = c - (p / 100) * c;
+  const strokeColor = p > 85 ? '#ef4444' : p > 65 ? '#f59e0b' : 'var(--brand)';
+
+  return (
+    <div className="flex items-center gap-4 rounded-surface border-line border-border bg-card/60 p-4 transition-colors hover:bg-card">
+      <div className="relative flex size-16 shrink-0 items-center justify-center">
+        <svg className="size-full -rotate-90" viewBox="0 0 64 64">
+          <circle
+            cx="32"
+            cy="32"
+            r={r}
+            className="stroke-muted/30"
+            strokeWidth="5"
+            fill="transparent"
+          />
+          <circle
+            cx="32"
+            cy="32"
+            r={r}
+            stroke={strokeColor}
+            strokeWidth="5"
+            strokeDasharray={c}
+            strokeDashoffset={offset}
+            strokeLinecap="round"
+            fill="transparent"
+            className="transition-all duration-700 ease-out"
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+          <span className="font-display text-xs font-bold tabular-nums">
+            {faNumber(Math.round(p))}٪
+          </span>
+        </div>
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground mb-1">
+          <Icon className="size-4 text-brand" strokeWidth={1.75} />
+          <span className="font-medium text-foreground">{label}</span>
+        </div>
+        <p className="truncate text-xs text-muted-foreground tabular-nums">
+          {sublabel}
+        </p>
       </div>
     </div>
   );

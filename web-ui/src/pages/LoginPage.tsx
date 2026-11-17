@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Eye, KeyRound, User, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
@@ -11,7 +11,23 @@ export function LoginPage() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState('');
+
+  // Auto-fill remembered credentials if user selected "Remember Me" previously
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('pcc_remember_me');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.username) setUsername(parsed.username);
+        if (parsed.password) setPassword(parsed.password);
+        setRememberMe(true);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -22,6 +38,11 @@ export function LoginPage() {
     }
     try {
       await login(username, password);
+      if (rememberMe) {
+        localStorage.setItem('pcc_remember_me', JSON.stringify({ username, password }));
+      } else {
+        localStorage.removeItem('pcc_remember_me');
+      }
       navigate('/', { replace: true });
     } catch (err: any) {
       if (err.response?.status === 401) setError('نام کاربری یا رمز عبور اشتباه است');
@@ -90,6 +111,18 @@ export function LoginPage() {
               </button>
             </div>
           </Field>
+
+          <div className="flex items-center justify-between text-xs py-0.5">
+            <label className="flex cursor-pointer items-center gap-2 select-none text-muted-foreground hover:text-foreground">
+              <input
+                type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="size-4 rounded border-border accent-brand"
+              />
+              <span>مرا به خاطر داشته باش</span>
+            </label>
+          </div>
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading ? 'در حال ورود…' : 'ورود'}

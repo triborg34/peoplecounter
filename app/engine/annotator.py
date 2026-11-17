@@ -69,20 +69,22 @@ def draw_frame(
         cv2.putText(canvas, "A", (p1[0] + 8, p1[1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         cv2.putText(canvas, "B", (p2[0] + 8, p2[1] - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
 
-        # Arrows that show which walking direction is counted.  The arrows are
+        # Arrows that show which walking direction is counted. The arrows are
         # perpendicular to the line, because people usually walk across it.
         mid = ((p1[0] + p2[0]) / 2.0, (p1[1] + p2[1]) / 2.0)
         in_start, in_end = _direction_arrow(p1, p2, +1)
         out_start, out_end = _direction_arrow(p1, p2, -1)
-        if line.direction in ("A_TO_B", "BOTH"):
-            cv2.arrowedLine(canvas, in_start, in_end, color, 3, tipLength=0.35)
-            cv2.putText(canvas, "IN", (int(in_end[0] + 6), int(in_end[1] + 5)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
-        if line.direction in ("B_TO_A", "BOTH"):
-            dim = tuple(int(c * 0.65) for c in color)
-            cv2.arrowedLine(canvas, out_start, out_end, dim, 2, tipLength=0.35)
-            cv2.putText(canvas, "OUT", (int(out_end[0] + 6), int(out_end[1] + 5)),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, dim, 2)
+        ab_meaning, ba_meaning = _parse_line_slots(line.direction)
+        if ab_meaning:
+            arr_color = color if ab_meaning == "IN" else tuple(int(c * 0.65) for c in color)
+            cv2.arrowedLine(canvas, in_start, in_end, arr_color, 3, tipLength=0.35)
+            cv2.putText(canvas, ab_meaning, (int(in_end[0] + 6), int(in_end[1] + 5)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, arr_color, 2)
+        if ba_meaning:
+            arr_color = color if ba_meaning == "IN" else tuple(int(c * 0.65) for c in color)
+            cv2.arrowedLine(canvas, out_start, out_end, arr_color, 2, tipLength=0.35)
+            cv2.putText(canvas, ba_meaning, (int(out_end[0] + 6), int(out_end[1] + 5)),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, arr_color, 2)
 
         label = line.name + " [" + line.direction + "]"
         cv2.putText(canvas, label, (int(mid[0] - 40), int(mid[1] - 26)),
@@ -144,3 +146,28 @@ def _direction_arrow(p1: Tuple[int, int], p2: Tuple[int, int], sign: int,
     start = (int(mid_x - nx * half * sign), int(mid_y - ny * half * sign))
     end = (int(mid_x + nx * half * sign), int(mid_y + ny * half * sign))
     return (start, end)
+
+
+def _parse_line_slots(direction: str) -> Tuple[Optional[str], Optional[str]]:
+    """Return (a_to_b_meaning, b_to_a_meaning) as 'IN', 'OUT', or None."""
+    direction = (direction or "BOTH").strip().upper()
+    legacy = {
+        "A_TO_B": ("IN", None),
+        "B_TO_A": (None, "IN"),
+        "BOTH": ("IN", "OUT"),
+        "BOTH_IN": ("IN", "OUT"),
+        "BOTH_OUT": ("OUT", "IN"),
+        "A_TO_B_IN": ("IN", "OUT"),
+        "A_TO_B_OUT": ("OUT", "OUT"),
+        "A_TO_B_IGNORE": (None, "OUT"),
+        "B_TO_A_IN": ("IN", "IN"),
+        "B_TO_A_OUT": ("IN", "OUT"),
+        "B_TO_A_IGNORE": ("IN", None),
+    }
+    if direction in legacy:
+        return legacy[direction]
+    if len(direction) == 2:
+        m = {"I": "IN", "O": "OUT", "X": None}
+        return (m.get(direction[0]), m.get(direction[1]))
+    return ("IN", "OUT")
+

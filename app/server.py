@@ -55,8 +55,18 @@ def run_server(
             # disconnect would otherwise stall the shutdown forever.
             timeout_graceful_shutdown=2.0,
         )
+    except KeyboardInterrupt:
+        log.info("Server received KeyboardInterrupt - exiting gracefully")
     finally:
+        log.info("Cleaning up and stopping background processes...")
         stop_dev_webui(dev_proc)
+        rt = getattr(app.state, "runtime", None)
+        if rt is not None and getattr(rt, "_started", False):
+            try:
+                rt.stop()
+            except Exception:
+                pass
+        log.info("Graceful shutdown complete.")
 
 
 class EmbeddedApiServer:
@@ -164,7 +174,10 @@ def main() -> None:
         help="do not start the web UI and do not open a browser",
     )
     args = parser.parse_args()
-    run_server(host=args.host, port=args.port, open_web=False if args.no_web else None)
+    try:
+        run_server(host=args.host, port=args.port, open_web=False if args.no_web else None)
+    except KeyboardInterrupt:
+        print("\n[INFO] Application gracefully stopped.")
 
 
 if __name__ == "__main__":

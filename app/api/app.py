@@ -86,6 +86,38 @@ def create_app(runtime: Optional[EngineRuntime] = None, settings: Optional[Setti
             "detector_available": bool(engine_runtime and engine_runtime.detector.available),
         }
 
+    @app.get(f"{API_PREFIX}/system/hardware", tags=["system"])
+    def system_hardware() -> dict:
+        import os
+        import psutil
+
+        try:
+            cpu = psutil.cpu_percent(interval=None)
+        except Exception:
+            cpu = 0.0
+
+        try:
+            mem = psutil.virtual_memory()
+            ram_percent = float(mem.percent)
+            ram_used = round(mem.used / (1024**3), 1)
+            ram_total = round(mem.total / (1024**3), 1)
+        except Exception:
+            ram_percent, ram_used, ram_total = 0.0, 0.0, 0.0
+
+        try:
+            disk = psutil.disk_usage(os.path.abspath("."))
+            disk_percent = float(disk.percent)
+            disk_used = round(disk.used / (1024**3), 1)
+            disk_total = round(disk.total / (1024**3), 1)
+        except Exception:
+            disk_percent, disk_used, disk_total = 0.0, 0.0, 0.0
+
+        return {
+            "cpu": {"percent": cpu},
+            "ram": {"percent": ram_percent, "used_gb": ram_used, "total_gb": ram_total},
+            "disk": {"percent": disk_percent, "used_gb": disk_used, "total_gb": disk_total},
+        }
+
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(request: Request, exc: Exception):  # pragma: no cover
         log.exception("Unhandled API error")

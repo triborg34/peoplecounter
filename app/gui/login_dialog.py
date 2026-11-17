@@ -4,7 +4,9 @@ from __future__ import annotations
 import logging
 from typing import Optional
 
+from PyQt6.QtCore import QSettings
 from PyQt6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QFormLayout,
     QHBoxLayout,
@@ -48,6 +50,18 @@ class LoginDialog(QDialog):
         form.addRow("User", self.username_edit)
         form.addRow("Password", self.password_edit)
         layout.addLayout(form)
+
+        self.remember_check = QCheckBox("Remember me (مرا به خاطر بسپار)")
+        layout.addWidget(self.remember_check)
+
+        # Load saved credentials
+        settings = QSettings("PeopleCounter", "PeopleCounter")
+        saved_user = settings.value("login/username", "")
+        saved_pass = settings.value("login/password", "")
+        if saved_user:
+            self.username_edit.setText(saved_user)
+            self.password_edit.setText(saved_pass)
+            self.remember_check.setChecked(True)
 
         self.error_label = QLabel("")
         self.error_label.setStyleSheet("color: #ef4444;")
@@ -105,4 +119,13 @@ class LoginDialog(QDialog):
                 self.error_label.setText("You must change the password before continuing.")
                 self.password_edit.clear()
                 return
+        # Persist credentials if remember me is checked
+        settings = QSettings("PeopleCounter", "PeopleCounter")
+        if self.remember_check.isChecked():
+            settings.setValue("login/username", resolved_username)
+            settings.setValue("login/password", password)
+        else:
+            settings.remove("login/username")
+            settings.remove("login/password")
+
         self.accept()

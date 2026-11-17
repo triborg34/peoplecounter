@@ -50,6 +50,41 @@ DRAFT_COLOR = "#eab308"
 # carries the vertices as handles, so the drawing is visible before it exists.
 DRAFT_PEN_STYLE = Qt.PenStyle.DashLine
 
+DIRECTION_CHOICES = [
+    ("Two-way: A->B IN / B->A OUT (دوطرفه)", "IO"),
+    ("Two-way: A->B OUT / B->A IN (دوطرفه معکوس)", "OI"),
+    ("One-way: A->B IN only (فقط A به B ورود)", "IX"),
+    ("One-way: A->B OUT only (فقط A به B خروج)", "OX"),
+    ("One-way: B->A IN only (فقط B به A ورود)", "XI"),
+    ("One-way: B->A OUT only (فقط B به A خروج)", "XO"),
+    ("Both count as IN (هر دو ورود)", "II"),
+    ("Both count as OUT (هر دو خروج)", "OO"),
+]
+
+
+def normalize_direction(val: str) -> str:
+    val = (val or "IO").strip().upper()
+    legacy = {
+        "A_TO_B": "IX",
+        "B_TO_A": "XI",
+        "BOTH": "IO",
+        "BOTH_IN": "IO",
+        "BOTH_OUT": "OI",
+        "A_TO_B_IN": "IO",
+        "A_TO_B_OUT": "OO",
+        "A_TO_B_IGNORE": "XO",
+        "B_TO_A_IN": "II",
+        "B_TO_A_OUT": "IO",
+        "B_TO_A_IGNORE": "IX",
+    }
+    return legacy.get(val, val if len(val) == 2 else "IO")
+
+
+def describe_direction_label(val: str) -> str:
+    code = normalize_direction(val)
+    m = {"I": "IN (ورود)", "O": "OUT (خروج)", "X": "Ignored (نادیده)"}
+    return f"A->B: {m.get(code[0], code[0])} / B->A: {m.get(code[1], code[1])}"
+
 
 def _qcolor(value: str, fallback: str = "#22c55e") -> QColor:
     color = QColor(value)
@@ -97,17 +132,8 @@ class LineGraphic(QGraphicsItemGroup):
         self.addToGroup(self.handle_a)
         self.addToGroup(self.handle_b)
 
-        # arrow showing the walking direction that is counted as IN
-        self.arrow = QGraphicsLineItem()
-        self.arrow.setPen(QPen(self.color, 3))
-        self.arrow.setZValue(13)
-        self.addToGroup(self.arrow)
-        self.arrow_head = QGraphicsPolygonItem()
-        self.arrow_head.setBrush(QBrush(self.color))
-        self.arrow_head.setPen(QPen(self.color, 1))
-        self.arrow_head.setZValue(14)
-        self.addToGroup(self.arrow_head)
-
+        # Arrows showing the counted direction(s)
+        self.arrow_items: List[QGraphicsItem] = []
         self.set_points([(x1, y1), (x2, y2)])
 
     def set_points(self, points: List[Tuple[float, float]]) -> None:
@@ -118,8 +144,15 @@ class LineGraphic(QGraphicsItemGroup):
         self._update_arrow()
 
     def _update_arrow(self) -> None:
-        """Draw the perpendicular arrow that marks the counted direction."""
+        """Draw the perpendicular arrow(s) that mark the counted direction."""
         import math
+        from ..engine.annotator import _parse_line_slots
+
+        for item in list(self.arrow_items):
+            self.removeFromGroup(item)
+            if self.scene():
+                self.scene().removeItem(item)
+        self.arrow_items.clear()
 
         (x1, y1), (x2, y2) = self._points
         vx, vy = x2 - x1, y2 - y1
@@ -128,22 +161,43 @@ class LineGraphic(QGraphicsItemGroup):
             return
         nx, ny = -vy / norm, vx / norm
         mid_x, mid_y = (x1 + x2) / 2.0, (y1 + y2) / 2.0
-        # the arrow was designed for a 0..1 drawing space; scale it with the
-        # actual line length so it stays visible on a pixel sized canvas
         half = max(16.0, min(80.0, norm * 0.06))
         size = max(6.0, half * 0.3)
-        sign = -1 if self.direction == "B_TO_A" else 1
-        start = QPointF(mid_x - nx * half * sign, mid_y - ny * half * sign)
-        end = QPointF(mid_x + nx * half * sign, mid_y + ny * half * sign)
-        self.arrow.setLine(start.x(), start.y(), end.x(), end.y())
-        head = QPolygonF([
-            QPointF(end.x(), end.y()),
-            QPointF(end.x() - nx * size * sign - vx / norm * size * 0.6,
-                    end.y() - ny * size * sign - vy / norm * size * 0.6),
-            QPointF(end.x() - nx * size * sign + vx / norm * size * 0.6,
-                    end.y() - ny * size * sign + vy / norm * size * 0.6),
-        ])
-        self.arrow_head.setPolygon(head)
+
+        ab_meaning, ba_meaning = _parse_line_slots(self.direction)
+
+        def _make_arrow(sign: int, meaning: str):
+            offset = half * 0.55 if (ab_meaning and ba_meaning) else 0.0
+            cx = mid_x + nx * offset * sign
+            cy = mid_y + ny * offset * sign
+            start = QPointF(cx - nx * half * sign, cy - ny * half * sign)
+            end = QPointF(cx + nx * half * sign, cy + ny * half * sign)
+            arr = QGraphicsLineItem(start.x(), start.y(), end.x(), end.y())
+            arr_color = self.color if meaning == "IN" else QColor(max(0, self.color.red() - 40), max(0, self.color.green() - 40), max(0, self.color.blue() - 40))
+            arr.setPen(QPen(arr_color, 2.5))
+            arr.setZValue(13)
+            self.addToGroup(arr)
+            self.arrow_items.append(arr)
+
+            head = QPolygonF([
+                QPointF(end.x(), end.y()),
+                QPointF(end.x() - nx * size * sign - vx / norm * size * 0.6,
+                        end.y() - ny * size * sign - vy / norm * size * 0.6),
+                QPointF(end.x() - nx * size * sign + vx / norm * size * 0.6,
+                        end.y() - ny * size * sign + vy / norm * size * 0.6),
+            ])
+            head_item = QGraphicsPolygonItem(head)
+            head_item.setBrush(QBrush(arr_color))
+            head_item.setPen(QPen(arr_color, 1))
+            head_item.setZValue(14)
+            self.addToGroup(head_item)
+            self.arrow_items.append(head_item)
+
+        if ab_meaning:
+            _make_arrow(1, ab_meaning)
+        if ba_meaning:
+            _make_arrow(-1, ba_meaning)
+
 
     def handle_moved(self, index: int, position: QPointF) -> None:
         points = list(self._points)
@@ -451,10 +505,9 @@ class ZoneEditor(QDialog):
         )
         toolbar.addWidget(self.mode_combo)
         self.direction_combo = QComboBox()
-        self.direction_combo.addItem("A -> B", "A_TO_B")
-        self.direction_combo.addItem("B -> A", "B_TO_A")
-        self.direction_combo.addItem("Both directions", "BOTH")
-        toolbar.addWidget(QLabel("Direction"))
+        for label, code in DIRECTION_CHOICES:
+            self.direction_combo.addItem(label, code)
+        toolbar.addWidget(QLabel("Direction / جهت شمارش:"))
         toolbar.addWidget(self.direction_combo)
         toolbar.addStretch(1)
         refresh = QPushButton("Refresh snapshot")
@@ -485,6 +538,25 @@ class ZoneEditor(QDialog):
         self.enabled_check = QCheckBox("Enabled")
         self.enabled_check.setChecked(True)
         side.addWidget(self.enabled_check)
+
+        self.direction_container = QWidget()
+        dir_layout = QVBoxLayout(self.direction_container)
+        dir_layout.setContentsMargins(0, 4, 0, 4)
+        dir_layout.setSpacing(2)
+        dir_layout.addWidget(QLabel("Direction / جهت شمارش:"))
+        self.side_direction_combo = QComboBox()
+        for label, code in DIRECTION_CHOICES:
+            self.side_direction_combo.addItem(label, code)
+        dir_layout.addWidget(self.side_direction_combo)
+        side.addWidget(self.direction_container)
+
+        # sync combos
+        self.direction_combo.currentIndexChanged.connect(
+            lambda idx: self._set_combo_code(self.side_direction_combo, self.direction_combo.currentData())
+        )
+        self.side_direction_combo.currentIndexChanged.connect(
+            lambda idx: self._set_combo_code(self.direction_combo, self.side_direction_combo.currentData())
+        )
 
         actions = QHBoxLayout()
         self.apply_button = QPushButton("Apply changes")
@@ -570,7 +642,7 @@ class ZoneEditor(QDialog):
                 )
                 self.canvas.scene().addItem(graphic)
                 self._line_items[line.id] = graphic
-                item = QListWidgetItem(line.name + "  [" + line.direction + "]")
+                item = QListWidgetItem(line.name + "  [" + describe_direction_label(line.direction) + "]")
                 item.setData(Qt.ItemDataRole.UserRole, line.id)
                 self.lines_list.addItem(item)
             for area in session.query(CounterArea).filter(CounterArea.camera_id == self.camera_id).all():
@@ -604,6 +676,14 @@ class ZoneEditor(QDialog):
                 area.points = json.dumps([[x, y] for x, y in normalized])
         self.runtime.sync_camera(self.camera_id)
 
+    @staticmethod
+    def _set_combo_code(combo: QComboBox, code: str) -> None:
+        idx = combo.findData(code)
+        if idx >= 0:
+            combo.blockSignals(True)
+            combo.setCurrentIndex(idx)
+            combo.blockSignals(False)
+
     # -- selection -------------------------------------------------------
     def _on_list_selection(self, widget: QListWidget, kind: str) -> None:
         item = widget.currentItem()
@@ -616,11 +696,12 @@ class ZoneEditor(QDialog):
         self.name_edit.setText(self._selected.name)
         self.enabled_check.setChecked(True)
         if isinstance(self._selected, LineGraphic):
-            self.direction_combo.setCurrentText(
-                {"A_TO_B": "A -> B", "B_TO_A": "B -> A", "BOTH": "Both directions"}.get(
-                    self._selected.direction, "Both directions"
-                )
-            )
+            code = normalize_direction(self._selected.direction)
+            self._set_combo_code(self.direction_combo, code)
+            self._set_combo_code(self.side_direction_combo, code)
+            self.direction_container.setVisible(True)
+        else:
+            self.direction_container.setVisible(False)
 
     def _on_selection(self, graphic) -> None:
         self._selected = graphic
@@ -634,11 +715,12 @@ class ZoneEditor(QDialog):
                 line = session.get(CounterLine, self._selected.line_id)
                 if line is None:
                     return
+                chosen_dir = self.side_direction_combo.currentData() or self.direction_combo.currentData() or "IO"
                 line.name = name
-                line.direction = self.direction_combo.currentData()
+                line.direction = chosen_dir
                 line.enabled = self.enabled_check.isChecked()
                 self._selected.name = name
-                self._selected.direction = line.direction
+                self._selected.direction = chosen_dir
                 self._selected._update_arrow()
             else:
                 area = session.get(CounterArea, self._selected.area_id)
@@ -681,13 +763,14 @@ class ZoneEditor(QDialog):
                 return
             x1, y1 = self.canvas.to_normalized(points[0])
             x2, y2 = self.canvas.to_normalized(points[1])
+            chosen_dir = self.direction_combo.currentData() or "IO"
             with self.runtime.db.session_scope() as session:
                 line = CounterLine(
                     camera_id=self.camera_id,
                     name=name.strip(),
                     color="#22c55e",
                     x1=x1, y1=y1, x2=x2, y2=y2,
-                    direction=self.direction_combo.currentData(),
+                    direction=chosen_dir,
                     enabled=True,
                 )
                 session.add(line)

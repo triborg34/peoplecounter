@@ -49,10 +49,10 @@ def test_cross_classify_perpendicular_and_parallel():
     assert cross_classify((0.5, 0.3), (0.5, 0.7), a, b) == CROSS_A_TO_B
     # walking up the screen
     assert cross_classify((0.5, 0.7), (0.5, 0.3), a, b) == CROSS_B_TO_A
-    # walking along the line towards B
-    assert cross_classify((0.3, 0.5), (0.7, 0.5), a, b) == CROSS_A_TO_B
+    # walking along the line does not cross side and returns None
+    assert cross_classify((0.3, 0.5), (0.7, 0.5), a, b) is None
     # walking along the line back to A
-    assert cross_classify((0.7, 0.5), (0.3, 0.5), a, b) == CROSS_B_TO_A
+    assert cross_classify((0.7, 0.5), (0.3, 0.5), a, b) is None
 
 
 # -- line counting -----------------------------------------------------

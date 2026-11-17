@@ -396,6 +396,16 @@ class ApiClient {
     return response.data;
   }
 
+  /** Hardware usage (CPU, RAM, Disk). */
+  async getSystemHardware(): Promise<{
+    cpu: { percent: number };
+    ram: { percent: number; used_gb: number; total_gb: number };
+    disk: { percent: number; used_gb: number; total_gb: number };
+  }> {
+    const response = await this.client.get('/system/hardware');
+    return response.data;
+  }
+
   // ---- WebSocket -----------------------------------------------------
   createWebSocket(path: string): WebSocket {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';

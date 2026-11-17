@@ -234,7 +234,7 @@ export function ZonesPage() {
                 <ToolButton active={mode === 'line'} onClick={() => setMode('line')} icon={Slash} label="خط" />
                 <ToolButton active={mode === 'area'} onClick={() => setMode('area')} icon={Shapes} label="منطقه" />
               </div>
-              {mode === 'line' && (
+              {(mode === 'line' || selected?.kind === 'line') && (
                 <DirectionPicker value={direction} onChange={changeDirection} />
               )}
             </div>
@@ -273,6 +273,12 @@ export function ZonesPage() {
                     <input type="checkbox" checked={editingEnabled} onChange={(e) => setEditingEnabled(e.target.checked)} className="size-4 accent-[var(--brand)]" />
                     فعال
                   </label>
+                  {selected?.kind === 'line' && (
+                    <div className="space-y-1.5 pt-1 border-t border-border/50">
+                      <span className="text-xs font-medium text-muted-foreground">جهت و نوع شمارش:</span>
+                      <DirectionPicker value={direction} onChange={changeDirection} />
+                    </div>
+                  )}
                   <div className="flex gap-2">
                     <Button size="sm" className="flex-1" disabled={busy} onClick={saveSelected}>
                       <Check className="size-4" />
@@ -487,10 +493,65 @@ function DirectionPicker({
     </div>
   );
 
+  const currentCode = `${ab}${ba}`;
+
   return (
-    <div className="flex flex-col gap-1.5 rounded-control border border-border bg-card/60 p-2">
-      {row('A به B', ab, (m) => onChange(`${m}${ba}`))}
-      {row('B به A', ba, (m) => onChange(`${ab}${m}`))}
+    <div className="flex flex-col gap-2 rounded-control border border-border bg-card/60 p-2">
+      <div className="flex flex-wrap items-center gap-1 pb-1.5 border-b border-border/40 text-[11px]">
+        <span className="text-muted-foreground ml-1">حالت‌های متداول:</span>
+        <button
+          type="button"
+          onClick={() => onChange('IO')}
+          className={cn(
+            'rounded px-1.5 py-0.5 border transition-colors',
+            currentCode === 'IO'
+              ? 'border-brand bg-brand/20 text-brand font-medium'
+              : 'border-transparent text-muted-foreground hover:bg-accent'
+          )}
+        >
+          دوطرفه (A→B ورود / B→A خروج)
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('OI')}
+          className={cn(
+            'rounded px-1.5 py-0.5 border transition-colors',
+            currentCode === 'OI'
+              ? 'border-brand bg-brand/20 text-brand font-medium'
+              : 'border-transparent text-muted-foreground hover:bg-accent'
+          )}
+        >
+          دوطرفه معکوس (A→B خروج / B→A ورود)
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('IX')}
+          className={cn(
+            'rounded px-1.5 py-0.5 border transition-colors',
+            currentCode === 'IX'
+              ? 'border-brand bg-brand/20 text-brand font-medium'
+              : 'border-transparent text-muted-foreground hover:bg-accent'
+          )}
+        >
+          فقط A→B ورود
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('XI')}
+          className={cn(
+            'rounded px-1.5 py-0.5 border transition-colors',
+            currentCode === 'XI'
+              ? 'border-brand bg-brand/20 text-brand font-medium'
+              : 'border-transparent text-muted-foreground hover:bg-accent'
+          )}
+        >
+          فقط B→A ورود
+        </button>
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {row('A به B', ab, (m) => onChange(`${m}${ba}`))}
+        {row('B به A', ba, (m) => onChange(`${ab}${m}`))}
+      </div>
     </div>
   );
 }

@@ -131,6 +131,9 @@ class MainWindow(QMainWindow):
             show_action = QAction("Show", self)
             show_action.triggered.connect(self._restore_from_tray)
             menu.addAction(show_action)
+            exit_action = QAction("Exit / خروج کامل", self)
+            exit_action.triggered.connect(self._force_quit)
+            menu.addAction(exit_action)
             self.tray.setContextMenu(menu)
             self.tray.activated.connect(self._tray_activated)
             self.tray.show()
@@ -235,6 +238,15 @@ class MainWindow(QMainWindow):
         self.showNormal()
         self.raise_()
         self.activateWindow()
+
+    def _force_quit(self) -> None:
+        """Completely exit the application without minimizing to system tray."""
+        self._minimize_to_tray = False
+        self.shutdown()
+        if self.app:
+            self.app.quit()
+        else:
+            self.close()
 
     def closeEvent(self, event):
         if self._minimize_to_tray and self.tray is not None and self.tray.isVisible():
