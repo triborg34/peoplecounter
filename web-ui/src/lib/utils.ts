@@ -38,10 +38,13 @@ export function faPercent(value: number, digits = 0): string {
 }
 
 /** Relative time in Persian: «۲ ساعت پیش» */
-export function faRelativeTime(date: Date | string | null | undefined): string {
-  if (!date) return "—";
-  const d = typeof date === "string" ? new Date(date) : date;
-  const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+export function faRelativeTime(date: Date | string | number | null | undefined): string {
+  if (date == null || date === "") return "—";
+  const timestamp = typeof date === "number"
+    ? (date < 1e12 ? date * 1000 : date)
+    : typeof date === "string" ? Date.parse(date) : date.getTime();
+  if (!Number.isFinite(timestamp)) return "—";
+  const diff = Math.max(0, Math.floor((Date.now() - timestamp) / 1000));
   if (diff < 60) return "همین حالا";
   if (diff < 3600) return `${fa(Math.floor(diff / 60))} دقیقه پیش`;
   if (diff < 86400) return `${fa(Math.floor(diff / 3600))} ساعت پیش`;

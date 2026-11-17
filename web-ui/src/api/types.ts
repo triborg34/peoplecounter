@@ -138,7 +138,8 @@ export interface GlobalCountsOut {
 
 export interface CountEvent {
   id: number;
-  timestamp: string;
+  /** REST returns ISO text; the live WebSocket emits Unix seconds. */
+  timestamp: string | number;
   camera_id: number;
   camera_name: string;
   kind: string;

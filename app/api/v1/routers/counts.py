@@ -215,9 +215,9 @@ def live_counts(
             camera_name=camera_name,
             zone_id=zone_id,
             zone_name=zone_name,
-            current_count=cam_data.get("total_in", 0) - cam_data.get("total_out", 0),
-            total_in=cam_data.get("total_in", 0),
-            total_out=cam_data.get("total_out", 0),
+            current_count=cam_data.get("in", 0) - cam_data.get("out", 0),
+            total_in=cam_data.get("in", 0),
+            total_out=cam_data.get("out", 0),
             last_event=last_event_out
         ))
     

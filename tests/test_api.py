@@ -153,7 +153,7 @@ def test_lines_and_areas_crud(client):
         json={"name": "Main door", "x1": 0.2, "y1": 0.5, "x2": 0.8, "y2": 0.5, "direction": "A_TO_B"},
     )
     assert line.status_code == 201, line.text
-    assert line.json()["direction"] == "A_TO_B"
+    assert line.json()["direction"] == "IX"
 
     lines = client.get(
         "/api/v1/cameras/{camera_id}/lines".format(camera_id=camera_id), headers=headers
@@ -169,7 +169,7 @@ def test_lines_and_areas_crud(client):
         json={"direction": "BOTH", "enabled": False},
     )
     assert patched.status_code == 200
-    assert patched.json()["direction"] == "BOTH"
+    assert patched.json()["direction"] == "IO"
     assert patched.json()["enabled"] is False
 
     area = client.post(
@@ -201,6 +201,39 @@ def test_counts_endpoints(client):
     global_counts = client.get("/api/v1/counts", headers=headers)
     assert global_counts.status_code == 200
     assert "in" in global_counts.json()["summary"]
+
+
+def test_live_counts_returns_engine_totals(client, runtime):
+    headers = auth_headers(login(client))
+    from app.db.models import Camera, CounterLine
+    from app.engine.types import TrackedPoint
+
+    with runtime.db.session_scope() as session:
+        camera = Camera(name="Live count camera", source_type="file", file_path="n/a", enabled=False)
+        session.add(camera)
+        session.flush()
+        session.add(CounterLine(
+            camera_id=camera.id,
+            name="Entrance",
+            x1=0.25, y1=0.5, x2=0.75, y2=0.5,
+            direction="BOTH",
+            enabled=True,
+        ))
+        camera_id = camera.id
+    runtime.sync_camera(camera_id)
+    runtime.camera_manager.counter.update(
+        camera_id, [TrackedPoint(track_id=1, x=0.5, y=0.45)], now=1000.0
+    )
+    runtime.camera_manager.counter.update(
+        camera_id, [TrackedPoint(track_id=1, x=0.5, y=0.625)], now=1000.5
+    )
+
+    response = client.get("/api/v1/counts/live", headers=headers)
+    assert response.status_code == 200
+    camera_counts = next(item for item in response.json() if item["camera_id"] == camera_id)
+    assert camera_counts["total_in"] == 1
+    assert camera_counts["total_out"] == 0
+    assert camera_counts["current_count"] == 1
 
 
 def test_reports_summary_and_exports(client):

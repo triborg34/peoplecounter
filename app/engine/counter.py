@@ -161,6 +161,25 @@ class CountingEngine:
         """Replace the zones of one camera and leave the other cameras alone."""
         lines = list(lines)
         areas = list(areas)
+        previous = {
+            line.id: (line.x1, line.y1, line.x2, line.y2, line.direction, line.enabled)
+            for line in self.lines
+            if line.camera_id == camera_id
+        }
+        current = {
+            line.id: (line.x1, line.y1, line.x2, line.y2, line.direction, line.enabled)
+            for line in lines
+        }
+        changed_ids = {
+            line_id
+            for line_id in previous.keys() | current.keys()
+            if previous.get(line_id) != current.get(line_id)
+        }
+        for track_states in self._tracks.get(camera_id, {}).values():
+            for line_id in changed_ids:
+                track_states.line_side.pop(line_id, None)
+                track_states.line_crossings.pop(line_id, None)
+
         self.lines = [line for line in self.lines if line.camera_id != camera_id] + lines
         self.areas = [area for area in self.areas if area.camera_id != camera_id] + areas
         self._prune_missing_targets("line")
@@ -181,6 +200,8 @@ class CountingEngine:
                 if kind == "line":
                     for line_id in [lid for lid in state.line_crossings if lid not in valid]:
                         state.line_crossings.pop(line_id, None)
+                    for line_id in [lid for lid in state.line_side if lid not in valid]:
+                        state.line_side.pop(line_id, None)
                 else:
                     for area_id in [aid for aid in state.area_state if aid not in valid]:
                         state.area_state.pop(area_id, None)
@@ -250,32 +271,49 @@ class CountingEngine:
                             continue
                         if not self._belongs_to(line, camera_id):
                             continue
-                        if not segments_intersect(
-                            prev, current, (line.x1, line.y1), (line.x2, line.y2)
-                        ):
+                        a = (line.x1, line.y1)
+                        b = (line.x2, line.y2)
+                        if not segments_intersect(prev, current, a, b):
                             continue
-                        movement = cross_classify(prev, current, (line.x1, line.y1), (line.x2, line.y2))
+
+                        movement = line_crossing(
+                            prev,
+                            current,
+                            a,
+                            b,
+                            previous_side=state.line_side.get(line.id),
+                        )
+                        direction = self._line_direction(line.direction, movement) if movement else None
+                        counted = False
                         if movement is None:
-                            # A sample sitting exactly on the line has no side, so
-                            # this step cannot be classified. Keep the last known
-                            # side instead of dropping it, and when the track
-                            # later resolves to the opposite side, count that as
-                            # the crossing the on-line sample hid.
-                            cur_side = signed_side(current, (line.x1, line.y1), (line.x2, line.y2))
-                            if cur_side == 0:
-                                continue
-                            remembered = state.line_side.get(line.id)
-                            if remembered is None or remembered == cur_side:
-                                state.line_side[line.id] = cur_side
-                                continue
-                            movement = CROSS_A_TO_B if remembered < 0 else CROSS_B_TO_A
-                            state.line_side[line.id] = cur_side
-                        if movement is None:
-                            continue
-                        direction = self._line_direction(line.direction, movement)
-                        if direction is None:
-                            continue
-                        if not self._debounce_line(state, line.id, current, now):
+                            reason = "no_side_change"
+                        elif direction is None:
+                            reason = "direction_ignored"
+                        elif not self._debounce_line(state, line.id, current, now):
+                            reason = "cooldown_or_min_displacement"
+                        else:
+                            counted = True
+                            reason = "counted"
+
+                        print(
+                            "[LINE-CROSSING] camera={camera} line={line_id}:{name!r} "
+                            "track={track} prev=({px:.3f},{py:.3f}) "
+                            "current=({cx:.3f},{cy:.3f}) movement={movement} "
+                            "direction={direction} counted={counted} reason={reason}".format(
+                                camera=camera_id,
+                                line_id=line.id,
+                                name=line.name,
+                                track=point.track_id,
+                                px=prev[0], py=prev[1],
+                                cx=current[0], cy=current[1],
+                                movement=movement or "TOUCH_OR_NO_SIDE_CHANGE",
+                                direction=direction or "IGNORED",
+                                counted=counted,
+                                reason=reason,
+                            ),
+                            flush=True,
+                        )
+                        if not counted:
                             continue
                         events.append(
                             CountEvent(
@@ -339,6 +377,8 @@ class CountingEngine:
             # Remember which side of each line this track is on, so a sample
             # landing exactly on the line does not erase a crossing.
             for line in self.lines or ():
+                if not line.enabled or not self._belongs_to(line, camera_id):
+                    continue
                 cur_side = signed_side(current, (line.x1, line.y1), (line.x2, line.y2))
                 if cur_side != 0:
                     state.line_side[line.id] = cur_side
@@ -447,20 +487,39 @@ class CountingEngine:
             camera_tracks.pop(tid, None)
 
 
-def cross_classify(prev: Point, current: Point, a: Point, b: Point) -> Optional[str]:
-    """Classify the movement of a track relative to the line A->B.
+def line_crossing(
+    prev: Point,
+    current: Point,
+    a: Point,
+    b: Point,
+    previous_side: Optional[int] = None,
+) -> Optional[str]:
+    """Return the direction only for a real crossing of the finite line segment.
 
-    The decision is the sign of the signed distance from each point to the line
-    (the cross product): negative on one side, positive on the other. A sign
-    change means the track passed through the line, and the direction of the
-    change gives A_TO_B or B_TO_A.
-
-    Walking *along* the line does not change side, so it is not a crossing and
-    returns None - a person strafing past a doorway must not be counted.
+    The track must move from one side of the line to the other, and its sampled
+    movement segment must intersect A-B. A point sampled on the line is resolved
+    using the track's last known non-zero side; touching, moving along the line,
+    and crossing only the infinite extension do not count.
     """
+    if math.dist(a, b) < 1e-9 or not segments_intersect(prev, current, a, b):
+        return None
+
     side_prev = signed_side(prev, a, b)
     side_curr = signed_side(current, a, b)
-    return classify_sides(side_prev, side_curr)
+    if side_prev == 0:
+        side_prev = previous_side or 0
+    if side_curr == 0 or side_prev == 0 or side_prev == side_curr:
+        return None
+    return CROSS_A_TO_B if side_prev < side_curr else CROSS_B_TO_A
+
+
+def cross_classify(prev: Point, current: Point, a: Point, b: Point) -> Optional[str]:
+    """Classify a side-to-side movement relative to the infinite line A->B.
+
+    Use :func:`line_crossing` when deciding whether to count an event, because
+    counting also requires intersection with the finite A-B segment.
+    """
+    return classify_sides(signed_side(prev, a, b), signed_side(current, a, b))
 
 
 def signed_side(point: Point, a: Point, b: Point) -> int:

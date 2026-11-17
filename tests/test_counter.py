@@ -10,6 +10,7 @@ from app.engine.counter import (
     CROSS_B_TO_A,
     CountingEngine,
     cross_classify,
+    line_crossing,
     point_in_polygon,
     segments_intersect,
 )
@@ -53,6 +54,37 @@ def test_cross_classify_perpendicular_and_parallel():
     assert cross_classify((0.3, 0.5), (0.7, 0.5), a, b) is None
     # walking along the line back to A
     assert cross_classify((0.7, 0.5), (0.3, 0.5), a, b) is None
+
+
+def test_line_crossing_requires_intersection_with_finite_segment():
+    a = (0.25, 0.5)
+    b = (0.75, 0.5)
+    assert line_crossing((0.5, 0.3), (0.5, 0.7), a, b) == CROSS_A_TO_B
+    # Crosses the infinite horizontal line, but beyond the endpoint B.
+    assert line_crossing((0.9, 0.3), (0.9, 0.7), a, b) is None
+    # Touching and moving back to the same side is not a crossing.
+    assert line_crossing((0.5, 0.3), (0.5, 0.5), a, b) is None
+    assert line_crossing((0.5, 0.3), (0.5, 0.3), a, b) is None
+    # A zero-length counting line is invalid.
+    assert line_crossing((0.4, 0.3), (0.6, 0.7), a, a) is None
+
+
+def test_line_crossing_resolves_sample_on_line_using_previous_side():
+    a = (0.5, 0.0)
+    b = (0.5, 1.0)
+    assert line_crossing((0.5, 0.5), (0.6, 0.5), a, b, previous_side=1) == CROSS_B_TO_A
+    assert line_crossing((0.5, 0.5), (0.4, 0.5), a, b, previous_side=1) is None
+    assert line_crossing((0.5, 0.5), (0.4, 0.5), a, b) is None
+
+
+def test_crossing_through_on_line_sample_counts_once():
+    line = LineSpec(id=1, name="Vertical", x1=0.5, y1=0.0, x2=0.5, y2=1.0, direction="BOTH")
+    engine = CountingEngine(lines=[line], cooldown_s=0.0, min_displacement=0.0)
+    assert engine.update(1, [point(1, 0.4, 0.5)], now=100.0) == []
+    assert engine.update(1, [point(1, 0.5, 0.5)], now=100.1) == []
+    events = engine.update(1, [point(1, 0.6, 0.5)], now=100.2)
+    assert len(events) == 1
+    assert events[0].direction == "OUT"
 
 
 # -- line counting -----------------------------------------------------
