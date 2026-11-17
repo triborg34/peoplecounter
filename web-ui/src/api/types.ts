@@ -79,6 +79,10 @@ export interface TestConnectionResult {
 }
 
 // Zones are split into lines and areas on the backend.
+/** What each crossing of the line counts as.
+ *  Two slots, "<A->B><B->A>": I = IN, O = OUT, X = ignored. */
+export type LineDirection = string;
+
 export interface Line {
   id: number;
   camera_id: number;
@@ -88,7 +92,7 @@ export interface Line {
   y1: number;
   x2: number;
   y2: number;
-  direction: 'A_TO_B' | 'B_TO_A' | 'BOTH';
+  direction: LineDirection;
   enabled: boolean;
 }
 
@@ -98,7 +102,7 @@ export interface LineCreate {
   y1: number;
   x2: number;
   y2: number;
-  direction?: 'A_TO_B' | 'B_TO_A' | 'BOTH';
+  direction?: LineDirection;
   color?: string;
   enabled?: boolean;
 }

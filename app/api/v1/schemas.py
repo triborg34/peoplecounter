@@ -153,6 +153,43 @@ class TestConnectionResult(BaseModel):
 
 
 # -- zones -------------------------------------------------------------
+# Line directions. The first three are the original values; the rest let the
+# user state directly which crossing should count as IN.
+# Line direction: two independent slots, "<A->B><B->A>", each one of
+#   I = counts as IN, O = counts as OUT, X = ignored entirely
+# so every combination is expressible: II IO IX OI OO OX XI XO XX.
+# The original three values are still accepted for rows created earlier and
+# mean: A_TO_B -> "IX", B_TO_A -> "XI", BOTH -> "IO".
+LEGACY_LINE_DIRECTIONS = {
+    "A_TO_B": "IX",
+    "B_TO_A": "XI",
+    "BOTH": "IO",
+    # Superseded intermediate names, kept so older rows keep working.
+    "BOTH_IN": "IO",
+    "BOTH_OUT": "OI",
+    "A_TO_B_IN": "IO",
+    "A_TO_B_OUT": "OO",
+    "A_TO_B_IGNORE": "XO",
+    "B_TO_A_IN": "II",
+    "B_TO_A_OUT": "IO",
+    "B_TO_A_IGNORE": "IX",
+}
+_SLOT_CHARS = "IOX"
+
+
+def _normalise_direction(value: str) -> str:
+    """Return the canonical two-slot form for a direction value."""
+    normalised = (value or "").strip().upper()
+    if normalised in LEGACY_LINE_DIRECTIONS:
+        return LEGACY_LINE_DIRECTIONS[normalised]
+    if len(normalised) == 2 and all(ch in _SLOT_CHARS for ch in normalised):
+        return normalised
+    raise ValueError(
+        "direction must be two of I/O/X (A->B then B->A), "
+        "or a legacy value: " + ", ".join(LEGACY_LINE_DIRECTIONS)
+    )
+
+
 class LineOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -181,10 +218,7 @@ class LineCreate(BaseModel):
     @field_validator("direction")
     @classmethod
     def _direction(cls, value: str) -> str:
-        value = (value or "BOTH").upper()
-        if value not in ("A_TO_B", "B_TO_A", "BOTH"):
-            raise ValueError("direction must be A_TO_B, B_TO_A or BOTH")
-        return value
+        return _normalise_direction(value)
 
 
 class LineUpdate(BaseModel):
@@ -205,10 +239,7 @@ class LineUpdate(BaseModel):
         # silently behave as BOTH in the engine and draw the same arrow.
         if value is None:
             return None
-        normalised = (value or "").strip().upper()
-        if normalised not in ("A_TO_B", "B_TO_A", "BOTH"):
-            raise ValueError("direction must be A_TO_B, B_TO_A or BOTH")
-        return normalised
+        return _normalise_direction(value)
 
 
 class AreaOut(BaseModel):

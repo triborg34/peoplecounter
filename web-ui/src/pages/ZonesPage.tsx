@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Check, MousePointer2, Plus, RefreshCw, Shapes, Slash, Trash2 } from 'lucide-react';
 import api from '@/api/client';
-import { type Area, type Camera, type Line } from '@/api/types';
-import { ZoneCanvas } from '@/components/ZoneCanvas';
+import { type Area, type Camera, type Line, type LineDirection } from '@/api/types';
+import { ZoneCanvas, describeDirection } from '@/components/ZoneCanvas';
 import { cn, fa } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -22,7 +22,7 @@ export function ZonesPage() {
     searchParams.get('camera') ? parseInt(searchParams.get('camera')!) : null,
   );
   const [mode, setMode] = useState<Mode>('select');
-  const [direction, setDirection] = useState<'A_TO_B' | 'B_TO_A' | 'BOTH'>('BOTH');
+  const [direction, setDirection] = useState<LineDirection>('BOTH');
   const [selected, setSelected] = useState<{ kind: 'line' | 'area'; id: number } | null>(null);
   const [loading, setLoading] = useState(false);
   const [snapshotKey, setSnapshotKey] = useState(Date.now());
@@ -132,7 +132,7 @@ export function ZonesPage() {
   }
 
   /** Changing the direction dropdown on a selected line persists immediately. */
-  async function changeDirection(next: 'A_TO_B' | 'B_TO_A' | 'BOTH') {
+  async function changeDirection(next: LineDirection) {
     setDirection(next);
     if (selected?.kind === 'line' && cameraId) {
       setLines((prev) => prev.map((l) => (l.id === selected.id ? { ...l, direction: next } : l)));
@@ -235,16 +235,7 @@ export function ZonesPage() {
                 <ToolButton active={mode === 'area'} onClick={() => setMode('area')} icon={Shapes} label="منطقه" />
               </div>
               {mode === 'line' && (
-                <select
-                  aria-label="جهت شمارش خط"
-                  value={direction}
-                  onChange={(e) => changeDirection(e.target.value as typeof direction)}
-                  className="h-9 rounded-field border-line-field border-input bg-field px-2 text-sm shadow-field focus-visible:border-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
-                >
-                  <option value="BOTH">هر دو جهت</option>
-                  <option value="A_TO_B">A ← به → B (ورود از سمت A)</option>
-                  <option value="B_TO_A">B ← به → A (ورود از سمت B)</option>
-                </select>
+                <DirectionPicker value={direction} onChange={changeDirection} />
               )}
             </div>
 
@@ -304,7 +295,7 @@ export function ZonesPage() {
                 id: l.id,
                 name: l.name,
                 color: l.color,
-                meta: l.direction === 'A_TO_B' ? 'A→B' : l.direction === 'B_TO_A' ? 'B→A' : 'هر دو',
+                meta: describeDirection(l.direction),
                 active: selected?.kind === 'line' && selected.id === l.id,
                 onSelect: () => {
                   setSelected({ kind: 'line', id: l.id });
@@ -425,5 +416,81 @@ function ZoneList({ title, emptyText, items, onAdd }: { title: string; emptyText
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Chooses what each crossing of this line means, in the user's own terms.
+ *
+ * The engine sees two geometric crossings, A->B and B->A (A is the first point
+ * drawn, B the second). Instead of making anyone reason about that, this asks
+ * two plain questions:
+ *
+ *   "crossing from side A to side B counts as ..."  IN / OUT / ignored
+ *   "crossing from side B to side A counts as ..."  IN / OUT / ignored
+ *
+ * The two answers are stored independently as a two-slot code: "IO" means A->B
+ * is IN and B->A is OUT (see schemas._normalise_direction).
+ */
+type DirMeaning = 'I' | 'O' | 'X';
+
+function splitDirection(value: string): [DirMeaning, DirMeaning] {
+  const v = (value || 'IO').toUpperCase();
+  // Expand the original values so old rows display the right selection.
+  const legacy: Record<string, [DirMeaning, DirMeaning]> = {
+    A_TO_B: ['I', 'X'],
+    B_TO_A: ['X', 'I'],
+    BOTH: ['I', 'O'],
+    BOTH_IN: ['I', 'O'],
+    BOTH_OUT: ['O', 'I'],
+    A_TO_B_IN: ['I', 'O'],
+    A_TO_B_OUT: ['O', 'O'],
+    A_TO_B_IGNORE: ['X', 'O'],
+    B_TO_A_IN: ['I', 'I'],
+    B_TO_A_OUT: ['I', 'O'],
+    B_TO_A_IGNORE: ['I', 'X'],
+  };
+  if (legacy[v]) return legacy[v];
+  if (v.length === 2) return [v[0] as DirMeaning, v[1] as DirMeaning];
+  return ['I', 'O'];
+}
+
+function DirectionPicker({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const [ab, ba] = splitDirection(value);
+  const options: DirMeaning[] = ['I', 'O', 'X'];
+  const label = (m: DirMeaning) => (m === 'I' ? 'ورود' : m === 'O' ? 'خروج' : 'نادیده');
+
+  const row = (title: string, current: DirMeaning, choose: (m: DirMeaning) => void) => (
+    <div className="flex items-center gap-2">
+      <span className="w-16 shrink-0 text-xs text-muted-foreground">{title}</span>
+      <div className="inline-flex rounded-control border border-border bg-card p-0.5">
+        {options.map((m) => (
+          <button
+            key={m}
+            type="button"
+            onClick={() => choose(m)}
+            className={cn(
+              'rounded-control px-2.5 py-1 text-xs font-medium transition-colors',
+              current === m ? 'bg-brand text-white' : 'text-foreground/70 hover:bg-accent',
+            )}
+          >
+            {label(m)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="flex flex-col gap-1.5 rounded-control border border-border bg-card/60 p-2">
+      {row('A به B', ab, (m) => onChange(`${m}${ba}`))}
+      {row('B به A', ba, (m) => onChange(`${ab}${m}`))}
+    </div>
   );
 }

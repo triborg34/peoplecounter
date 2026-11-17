@@ -354,12 +354,26 @@ export function ZoneCanvas({
         {(selectedLine || selectedArea) && (
           <span className="text-xs text-gray-500">
             انتخاب‌شده: {selectedLine?.name || selectedArea?.name}
-            {selectedLine && ` (${selectedLine.direction === 'A_TO_B' ? 'A→B' : selectedLine.direction === 'B_TO_A' ? 'B→A' : 'هر دو'})`}
+            {selectedLine && ` (${describeDirection(selectedLine.direction)})`}
           </span>
         )}
       </div>
     </div>
   );
+}
+
+/** Human-readable summary of a line's two-slot direction code. */
+export function describeDirection(value: string): string {
+  const legacy: Record<string, string> = {
+    A_TO_B: 'IX', B_TO_A: 'XI', BOTH: 'IO',
+    BOTH_IN: 'IO', BOTH_OUT: 'OI',
+    A_TO_B_IN: 'IO', A_TO_B_OUT: 'OO', A_TO_B_IGNORE: 'XO',
+    B_TO_A_IN: 'II', B_TO_A_OUT: 'IO', B_TO_A_IGNORE: 'IX',
+  };
+  const v = (value || 'IO').toUpperCase();
+  const code = legacy[v] ?? (v.length === 2 ? v : 'IO');
+  const word = (ch: string) => (ch === 'I' ? 'ورود' : ch === 'O' ? 'خروج' : 'نادیده');
+  return `A→B ${word(code[0])} / B→A ${word(code[1])}`;
 }
 
 /** Perpendicular arrow marking the counted walking direction (like the PyQt editor).
@@ -381,7 +395,18 @@ function DirectionalArrow({
   if (norm < 1e-6) return null;
   // Normalise defensively: a lower-case or padded value from the API must not
   // fall through to the A_TO_B branch and draw the wrong arrow.
-  const dir = String(direction || 'BOTH').trim().toUpperCase();
+  const dir = String(direction || 'IO').trim().toUpperCase();
+  // Two-slot code "<A->B><B->A>": I=IN, O=OUT, X=ignored. Expand the original
+  // values first so rows created before this scheme still draw correctly.
+  const LEGACY: Record<string, string> = {
+    A_TO_B: 'IX', B_TO_A: 'XI', BOTH: 'IO',
+    BOTH_IN: 'IO', BOTH_OUT: 'OI',
+    A_TO_B_IN: 'IO', A_TO_B_OUT: 'OO', A_TO_B_IGNORE: 'XO',
+    B_TO_A_IN: 'II', B_TO_A_OUT: 'IO', B_TO_A_IGNORE: 'IX',
+  };
+  const code = LEGACY[dir] ?? (dir.length === 2 ? dir : 'IO');
+  const abMeaning = code[0];
+  const baMeaning = code[1];
   // Unit normal to the line; crossing from -normal to +normal is A_TO_B (IN).
   const nx = -vy / norm;
   const ny = vx / norm;
@@ -416,14 +441,16 @@ function DirectionalArrow({
     );
   };
 
-  // A_TO_B and B_TO_A are mirror images: one arrow each, always opposite.
-  // BOTH counts crossings either way, so it shows both.
-  const signs: Array<1 | -1> = dir === 'BOTH' ? [1, -1] : [dir === 'B_TO_A' ? -1 : 1];
+  // One arrow per direction that is actually counted, pointing the way a person
+  // must walk for that crossing. A->B is the +normal side.
+  const signs: Array<1 | -1> = [];
+  if (abMeaning !== 'X') signs.push(1);
+  if (baMeaning !== 'X') signs.push(-1);
 
   return (
     <g pointerEvents="none">
       {signs.map((s) => arrow(s))}
-      {dir === 'BOTH' && (
+      {abMeaning !== 'X' && baMeaning !== 'X' && (
         <text
           x={mx}
           y={my}
