@@ -19,4 +19,6 @@ models/
 .mypy_cache/
 node_modules/
 .idea/
-.vscode/
+.vscode
+frontend
+frontend/*
