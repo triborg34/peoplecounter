@@ -20,8 +20,13 @@ HORIZONTAL = LineSpec(id=1, name="Entrance", x1=0.25, y1=0.5, x2=0.75, y2=0.5, d
 SQUARE = [(0.25, 0.25), (0.75, 0.25), (0.75, 0.75), (0.25, 0.75)]
 
 
-def point(track_id: int, x: float, y: float) -> TrackedPoint:
-    return TrackedPoint(track_id=track_id, x=x, y=y, confidence=0.9)
+def point(
+    track_id: int,
+    x: float,
+    y: float,
+    bbox: tuple[float, float, float, float] | None = None,
+) -> TrackedPoint:
+    return TrackedPoint(track_id=track_id, x=x, y=y, confidence=0.9, bbox=bbox)
 
 
 def engine_for(direction: str = "A_TO_B", **kwargs) -> CountingEngine:
@@ -85,6 +90,33 @@ def test_crossing_through_on_line_sample_counts_once():
     events = engine.update(1, [point(1, 0.6, 0.5)], now=100.2)
     assert len(events) == 1
     assert events[0].direction == "OUT"
+
+
+def test_bounding_box_touching_line_counts_once_without_foot_crossing():
+    line = LineSpec(id=1, name="Door", x1=0.5, y1=1.0, x2=0.5, y2=0.0, direction="BOTH")
+    engine = CountingEngine(lines=[line], cooldown_s=0.0, min_displacement=0.0)
+
+    assert engine.update(1, [point(1, 0.35, 0.9, (0.25, 0.6, 0.45, 0.95))], now=100.0) == []
+    entered = engine.update(1, [point(1, 0.47, 0.9, (0.37, 0.6, 0.57, 0.95))], now=100.2)
+    assert len(entered) == 1
+    assert entered[0].direction == "IN"
+
+    # The box continues to overlap the line; it must not generate duplicates.
+    still_overlapping = engine.update(1, [point(1, 0.55, 0.9, (0.45, 0.6, 0.65, 0.95))], now=100.4)
+    assert still_overlapping == []
+
+
+def test_bounding_box_contact_counts_again_after_leaving_and_reentering():
+    line = LineSpec(id=1, name="Door", x1=0.5, y1=1.0, x2=0.5, y2=0.0, direction="BOTH")
+    engine = CountingEngine(lines=[line], cooldown_s=0.0, min_displacement=0.0)
+    engine.update(1, [point(1, 0.35, 0.9, (0.25, 0.6, 0.45, 0.95))], now=100.0)
+    first = engine.update(1, [point(1, 0.47, 0.9, (0.37, 0.6, 0.57, 0.95))], now=100.2)
+    engine.update(1, [point(1, 0.7, 0.9, (0.6, 0.6, 0.8, 0.95))], now=100.4)
+    second = engine.update(1, [point(1, 0.53, 0.9, (0.43, 0.6, 0.63, 0.95))], now=100.6)
+
+    assert len(first) == len(second) == 1
+    assert first[0].direction == "IN"
+    assert second[0].direction == "OUT"
 
 
 # -- line counting -----------------------------------------------------

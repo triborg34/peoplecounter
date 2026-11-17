@@ -68,13 +68,13 @@ class Track:
 
 @dataclass
 class TrackedPoint:
-    """Normalised (0..1) position of a tracked person used by the counter."""
+    """Normalised (0..1) position and optional box used by the counter."""
 
     track_id: int
     x: float
     y: float
     confidence: float = 0.0
-    bbox: Optional[Tuple[float, float, float, float]] = None
+    bbox: Optional[Tuple[float, float, float, float]] = None  # normalised x1, y1, x2, y2
 
 
 @dataclass

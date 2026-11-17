@@ -180,7 +180,12 @@ class CameraManager:
                     x=px / max(1, width),
                     y=py / max(1, height),
                     confidence=track.confidence,
-                    bbox=track.bbox,
+                    bbox=(
+                        track.bbox[0] / max(1, width),
+                        track.bbox[1] / max(1, height),
+                        track.bbox[2] / max(1, width),
+                        track.bbox[3] / max(1, height),
+                    ),
                 )
             )
 

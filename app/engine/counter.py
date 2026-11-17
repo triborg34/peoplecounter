@@ -102,6 +102,10 @@ class _TrackState:
     # land exactly on the line so a crossing is not lost when a track is snapped
     # onto it.
     line_side: Dict[int, int] = field(default_factory=dict)
+    # line_id -> whether this track's bounding box currently touches the line
+    line_box_contact: Dict[int, bool] = field(default_factory=dict)
+    line_box_direction: Dict[int, str] = field(default_factory=dict)
+    last_bbox: Optional[Tuple[float, float, float, float]] = None
     # area_id -> inside?
     area_state: Dict[int, bool] = field(default_factory=dict)
     # area_id -> (timestamp, point) of the last accepted area transition
@@ -179,6 +183,8 @@ class CountingEngine:
             for line_id in changed_ids:
                 track_states.line_side.pop(line_id, None)
                 track_states.line_crossings.pop(line_id, None)
+                track_states.line_box_contact.pop(line_id, None)
+                track_states.line_box_direction.pop(line_id, None)
 
         self.lines = [line for line in self.lines if line.camera_id != camera_id] + lines
         self.areas = [area for area in self.areas if area.camera_id != camera_id] + areas
@@ -202,6 +208,10 @@ class CountingEngine:
                         state.line_crossings.pop(line_id, None)
                     for line_id in [lid for lid in state.line_side if lid not in valid]:
                         state.line_side.pop(line_id, None)
+                    for line_id in [lid for lid in state.line_box_contact if lid not in valid]:
+                        state.line_box_contact.pop(line_id, None)
+                    for line_id in [lid for lid in state.line_box_direction if lid not in valid]:
+                        state.line_box_direction.pop(line_id, None)
                 else:
                     for area_id in [aid for aid in state.area_state if aid not in valid]:
                         state.area_state.pop(area_id, None)
@@ -261,6 +271,8 @@ class CountingEngine:
             seen_ids.add(point.track_id)
             state = camera_tracks.setdefault(point.track_id, _TrackState())
             current: Point = (point.x, point.y)
+            current_bbox = normalize_bbox(point.bbox) if point.bbox is not None else None
+            previous_bbox = state.last_bbox
 
             # --- lines -------------------------------------------------
             if self.lines:
@@ -273,20 +285,50 @@ class CountingEngine:
                             continue
                         a = (line.x1, line.y1)
                         b = (line.x2, line.y2)
-                        if not segments_intersect(prev, current, a, b):
-                            continue
+                        body_contact = False
+                        if current_bbox is not None:
+                            touching_now = line_intersects_bbox(a, b, current_bbox)
+                            swept_contact = (
+                                previous_bbox is not None
+                                and line_intersects_bbox(a, b, union_bbox(previous_bbox, current_bbox))
+                            )
+                            was_touching = state.line_box_contact.get(line.id, False)
+                            center_movement = bbox_center_crossing(previous_bbox, current_bbox, a, b)
+                            movement = bbox_cross_direction(previous_bbox, current_bbox, a, b)
+                            body_contact = False
+                            if (touching_now or swept_contact) and not was_touching:
+                                body_contact = True
+                                if movement is not None:
+                                    state.line_box_direction[line.id] = movement
+                            elif (
+                                was_touching
+                                and center_movement is not None
+                                and center_movement != state.line_box_direction.get(line.id)
+                            ):
+                                body_contact = True
+                                state.line_box_direction[line.id] = center_movement
+                                movement = center_movement
+                            state.line_box_contact[line.id] = touching_now
+                            if not touching_now and not swept_contact:
+                                state.line_box_direction.pop(line.id, None)
+                            if not body_contact:
+                                continue
+                            movement = movement or center_movement
+                        else:
+                            if not segments_intersect(prev, current, a, b):
+                                continue
+                            movement = line_crossing(
+                                prev,
+                                current,
+                                a,
+                                b,
+                                previous_side=state.line_side.get(line.id),
+                            )
 
-                        movement = line_crossing(
-                            prev,
-                            current,
-                            a,
-                            b,
-                            previous_side=state.line_side.get(line.id),
-                        )
                         direction = self._line_direction(line.direction, movement) if movement else None
                         counted = False
                         if movement is None:
-                            reason = "no_side_change"
+                            reason = "no_directional_movement"
                         elif direction is None:
                             reason = "direction_ignored"
                         elif not self._debounce_line(state, line.id, current, now):
@@ -298,15 +340,17 @@ class CountingEngine:
                         print(
                             "[LINE-CROSSING] camera={camera} line={line_id}:{name!r} "
                             "track={track} prev=({px:.3f},{py:.3f}) "
-                            "current=({cx:.3f},{cy:.3f}) movement={movement} "
-                            "direction={direction} counted={counted} reason={reason}".format(
+                            "current=({cx:.3f},{cy:.3f}) body_contact={body_contact} "
+                            "movement={movement} direction={direction} "
+                            "counted={counted} reason={reason}".format(
                                 camera=camera_id,
                                 line_id=line.id,
                                 name=line.name,
                                 track=point.track_id,
                                 px=prev[0], py=prev[1],
                                 cx=current[0], cy=current[1],
-                                movement=movement or "TOUCH_OR_NO_SIDE_CHANGE",
+                                body_contact=body_contact,
+                                movement=movement or "NO_DIRECTIONAL_MOVEMENT",
                                 direction=direction or "IGNORED",
                                 counted=counted,
                                 reason=reason,
@@ -373,6 +417,7 @@ class CountingEngine:
                         totals.out_count += 1
 
             state.last_point = current
+            state.last_bbox = current_bbox
             state.last_ts = now
             # Remember which side of each line this track is on, so a sample
             # landing exactly on the line does not erase a crossing.
@@ -511,6 +556,92 @@ def line_crossing(
     if side_curr == 0 or side_prev == 0 or side_prev == side_curr:
         return None
     return CROSS_A_TO_B if side_prev < side_curr else CROSS_B_TO_A
+
+
+def normalize_bbox(
+    bbox: Tuple[float, float, float, float],
+) -> Tuple[float, float, float, float]:
+    """Clamp and order a normalized box as (left, top, right, bottom)."""
+    x1, y1, x2, y2 = bbox
+    return (
+        max(0.0, min(1.0, min(x1, x2))),
+        max(0.0, min(1.0, min(y1, y2))),
+        max(0.0, min(1.0, max(x1, x2))),
+        max(0.0, min(1.0, max(y1, y2))),
+    )
+
+
+def union_bbox(
+    first: Tuple[float, float, float, float],
+    second: Tuple[float, float, float, float],
+) -> Tuple[float, float, float, float]:
+    """Bounding rectangle covering both boxes."""
+    return (
+        min(first[0], second[0]),
+        min(first[1], second[1]),
+        max(first[2], second[2]),
+        max(first[3], second[3]),
+    )
+
+
+def line_intersects_bbox(
+    a: Point,
+    b: Point,
+    bbox: Tuple[float, float, float, float],
+) -> bool:
+    """Whether a finite line segment touches or crosses a bounding box."""
+    left, top, right, bottom = bbox
+    if left <= a[0] <= right and top <= a[1] <= bottom:
+        return True
+    if left <= b[0] <= right and top <= b[1] <= bottom:
+        return True
+    corners = ((left, top), (right, top), (right, bottom), (left, bottom))
+    return any(
+        segments_intersect(a, b, corners[index], corners[(index + 1) % 4])
+        for index in range(4)
+    )
+
+
+def bbox_center_crossing(
+    previous: Optional[Tuple[float, float, float, float]],
+    current: Tuple[float, float, float, float],
+    a: Point,
+    b: Point,
+) -> Optional[str]:
+    """Return the direction when the box center crosses the finite line."""
+    if previous is None:
+        return None
+    previous_center = ((previous[0] + previous[2]) / 2, (previous[1] + previous[3]) / 2)
+    current_center = ((current[0] + current[2]) / 2, (current[1] + current[3]) / 2)
+    return line_crossing(previous_center, current_center, a, b)
+
+
+def bbox_cross_direction(
+    previous: Optional[Tuple[float, float, float, float]],
+    current: Tuple[float, float, float, float],
+    a: Point,
+    b: Point,
+) -> Optional[str]:
+    """Direction of the person's box center moving toward/across the line."""
+    if previous is None or math.dist(a, b) < 1e-9:
+        return None
+    previous_center = ((previous[0] + previous[2]) / 2, (previous[1] + previous[3]) / 2)
+    current_center = ((current[0] + current[2]) / 2, (current[1] + current[3]) / 2)
+    previous_distance = signed_distance(previous_center, a, b)
+    current_distance = signed_distance(current_center, a, b)
+    delta = current_distance - previous_distance
+    if abs(delta) < 1e-9:
+        return None
+    return CROSS_A_TO_B if delta > 0 else CROSS_B_TO_A
+
+
+def signed_distance(point: Point, a: Point, b: Point) -> float:
+    """Signed perpendicular distance from a point to the infinite line A->B."""
+    vx, vy = b[0] - a[0], b[1] - a[1]
+    length = math.hypot(vx, vy)
+    if length < 1e-9:
+        return 0.0
+    return (vx * (point[1] - a[1]) - vy * (point[0] - a[0])) / length
 
 
 def cross_classify(prev: Point, current: Point, a: Point, b: Point) -> Optional[str]:
